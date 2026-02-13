@@ -34,12 +34,9 @@ class LiterMetricsCalculator:
         if "sales_dolar" not in out.columns:
             out["sales_dolar"] = out["total_price"] * out["units_sold"] / denom
 
-        out["avg_price_per_liter"] = out["sales_dolar"] / out["liters_sold"]
-
         # Redondeos
         out["price_per_upc"] = out["price_per_upc"].round(4)
         out["price_per_liter"] = out["price_per_liter"].round(4)
-        out["avg_price_per_liter"] = out["avg_price_per_liter"].round(4)
         out["liters_sold"] = out["liters_sold"].round(6)
         out[liters_col] = out[liters_col].round(6)
         return out
