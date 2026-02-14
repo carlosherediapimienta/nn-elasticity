@@ -39,9 +39,6 @@ class ElasticityFeatureGenerator:
             x = x.mask(x <= 0, np.nan)
             return np.log(x)
 
-        out["log_units_sold"] = safe_log(out["units_sold"])
-        out["log_price_per_upc"] = safe_log(out["price_per_upc"])
-
         out["log_liters_sold"] = safe_log(out["liters_sold"])
         out["log_price_per_liter"] = safe_log(out["price_per_liter"])
 

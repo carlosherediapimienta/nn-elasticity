@@ -8,9 +8,9 @@ from .functions.plotter import CorrelationHistogramPlotter
 
 class EDA:
     """
-    Orquestador de análisis EDA. Coordina NanAnalyzer, CorrelationAnalyzer
-    y CorrelationHistogramPlotter usando únicamente su API pública (run).
-    API pública de esta clase: run().
+    Orchestrator of EDA analysis. Coordinates NanAnalyzer, CorrelationAnalyzer
+    and CorrelationHistogramPlotter using only their public API (run).
+    Public API of this class: run().
     """
 
     def __init__(self):

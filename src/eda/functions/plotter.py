@@ -4,22 +4,22 @@ from typing import Optional
 
 class CorrelationHistogramPlotter:
     """
-    Dibuja histograma de correlaciones con mediana.
-    API pública: run().
+    Draws histogram of correlations with median.
+    Public API: run().
     """
 
     def run(
         self,
         corr_df: pd.DataFrame,
         corr_col: str = "corr",
-        title: str = "Correlación de Spearman por tienda",
-        xlabel: str = "Correlación de Spearman",
-        ylabel: str = "Nº tiendas",
+        title: str = "Spearman correlation by store",
+        xlabel: str = "Spearman correlation",
+        ylabel: str = "Number of stores",
         bins: int = 25,
         figsize: tuple[int, int] = (8, 5),
         ax: Optional[plt.Axes] = None,
     ) -> plt.Axes:
-        """API pública. Dibuja el histograma y retorna el Axes."""
+        """Public API. Draws the histogram and returns the Axes."""
         if ax is None:
             _, ax = plt.subplots(figsize=figsize)
         series = corr_df[corr_col].dropna()
