@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Optional
 
+
 class CorrelationHistogramPlotter:
     """
     Draws histogram of correlations with median.
@@ -25,7 +26,7 @@ class CorrelationHistogramPlotter:
         series = corr_df[corr_col].dropna()
         ax.hist(series, bins=bins, edgecolor="black", alpha=0.7)
         med = series.median()
-        ax.axvline(med, color="red", linestyle="--", linewidth=2, label=f"Mediana = {med:.3f}")
+        ax.axvline(med, color="red", linestyle="--", linewidth=2, label=f"Median = {med:.3f}")
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
