@@ -23,8 +23,8 @@ class CubicSplineBasis(nn.Module):
             scale: scale for normalization
         """
         super().__init__()
-        knots = knots.float().view(1, -1)  # (1, K)
-        self.register_buffer("knots", knots)
+        knots = (knots.float() - shift) / scale 
+        self.register_buffer("knots", knots.view(1, -1))
         self.shift = float(shift)
         self.scale = float(scale)
 
