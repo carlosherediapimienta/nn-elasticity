@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from ..spline import CubicSplineBasis
 from .integrable_demand_head import IntegrableDemandHead1D
@@ -35,6 +36,15 @@ class ICDN_1D(nn.Module):
         self.context_builder = context_builder
         self.price_spline = price_spline
         self.head = head
+        self.lag_keys = [
+            "lag_y_1", "lag_y_2", "lag_y_4",
+            "rolling_mean_y_4", "rolling_mean_y_13",
+            "lag_y_1_missing", "lag_y_2_missing", "lag_y_4_missing",
+            "rolling_mean_y_4_missing", "rolling_mean_y_13_missing",
+            "lag_x_1", "delta_x_1", "rolling_mean_x_4",
+            "lag_onpromo_1", "lag_onpromo_2", "weeks_since_promo",
+            "week_gap_1",
+        ]
 
     def run(self, batch: dict, return_parts: bool = False):
         """
@@ -61,6 +71,9 @@ class ICDN_1D(nn.Module):
                 eps_hat: (B,)
                 aux: dict with keys {'b', 'beta', 'w', 'c', 'Bx', 'dBx', 'ddBx'}
         """
+
+        lag_features = torch.stack([batch[k] for k in self.lag_keys], dim=1)
+
         # 1) Build context vector c
         c = self.context_builder(
             batch["store_code"],
@@ -71,6 +84,7 @@ class ICDN_1D(nn.Module):
             batch["promo_C"],
             batch["promo_S"],
             batch["liters_per_upc"],
+            lag_features,
             return_parts=False
         )
 

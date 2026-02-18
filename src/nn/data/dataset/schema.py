@@ -29,6 +29,21 @@ class DatasetSchema:
         "liters_per_upc",
         "log_price_per_liter"
     ])
+
+    # Lag features
+    lag_cols: list[str] = field(default_factory=lambda: [
+        # Sales memory (11 original → 5 + 5 flags + 1 gap)
+        "lag_y_1", "lag_y_2", "lag_y_4",
+        "rolling_mean_y_4", "rolling_mean_y_13",
+        "lag_y_1_missing", "lag_y_2_missing", "lag_y_4_missing",
+        "rolling_mean_y_4_missing", "rolling_mean_y_13_missing",
+        # Price memory
+        "lag_x_1", "delta_x_1", "rolling_mean_x_4",
+        # Promotion memory
+        "lag_onpromo_1", "lag_onpromo_2", "weeks_since_promo",
+        # Week gap
+        "week_gap_1",
+    ])
     
     # Target column
     target_col: str = "log_liters_sold"
@@ -39,6 +54,7 @@ class DatasetSchema:
             self.categorical_cols +
             self.promo_cols +
             self.numeric_cols +
+            self.lag_cols +
             [self.target_col]
         )
     
@@ -80,6 +96,10 @@ class DatasetSchema:
         
         # Numerical → float32
         for col in self.numeric_cols:
+            specs[col] = torch.float32
+        
+        # Lag features → float32
+        for col in self.lag_cols:
             specs[col] = torch.float32
         
         # Target column → float32
