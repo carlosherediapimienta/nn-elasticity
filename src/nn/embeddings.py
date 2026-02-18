@@ -28,6 +28,7 @@ class DemandContextEmbeddings(nn.Module):
         n_stores: int,
         n_upcs: int,
         n_weeks: int,
+        n_lags: int = 17,
         d_store: int = 24,
         d_upc: int = 48,
         d_week: int = 12,
@@ -48,6 +49,7 @@ class DemandContextEmbeddings(nn.Module):
             n_stores: number of unique stores
             n_upcs: number of unique UPCs
             n_weeks: number of unique weeks
+            n_lags: number of lag features
             d_store: dimension of store embedding
             d_upc: dimension of UPC embedding
             d_week: dimension of week embedding
@@ -82,6 +84,7 @@ class DemandContextEmbeddings(nn.Module):
         self.promo_processor = promo_processor or PromoFeatureProcessor()
         self.liter_processor = liter_processor or LiterFeatureProcessor(eps=log_liters_eps)
         
+        self.n_lags = n_lags
         self.week_min = week_min
         self.week_max = week_max
     
@@ -92,7 +95,8 @@ class DemandContextEmbeddings(nn.Module):
             self.entity_embedder.out_dim +  # embeddings (store + UPC + week)
             self.time_features.out_dim +    # Fourier + trend
             4 +                              # promo features (on_promo, B, C, S)
-            1                                # log_liters
+            1 +                              # log_liters
+            self.n_lags                   # lag features
         )
     
     def run(
@@ -105,6 +109,7 @@ class DemandContextEmbeddings(nn.Module):
         promo_C: torch.Tensor,
         promo_S: torch.Tensor,
         liters_per_upc: torch.Tensor,
+        lag_features: torch.Tensor,
         return_parts: bool = False
     ):
         """
@@ -119,6 +124,7 @@ class DemandContextEmbeddings(nn.Module):
             promo_C: (C,) promotion type C flag
             promo_S: (S,) promotion type S flag
             liters_per_upc: (B,) liters per UPC (float)
+            lag_features: (B, n_lag_features) lag features
             return_parts: if True, return dict with individual components
         
         Returns:
@@ -149,12 +155,8 @@ class DemandContextEmbeddings(nn.Module):
         z = self.liter_processor.run(liters_per_upc)
         
         # 5. Concatenación final: [e_s, e_i, e_t, Fourier(t), p, z]
-        c = torch.cat([
-            emb_result['concat'],  # embeddings concatenados
-            ft,                     # time features
-            p,                      # promo features
-            z                       # log liters
-        ], dim=1)
+        parts = [emb_result['concat'], ft, p, z, lag_features]
+        c = torch.cat(parts, dim=1)
         
         if return_parts:
             return {
@@ -165,6 +167,7 @@ class DemandContextEmbeddings(nn.Module):
                 "fourier_t": ft,
                 "promo4": p,
                 "log_liters_per_upc": z,
+                "lag_features": lag_features,
             }
         return c
     
