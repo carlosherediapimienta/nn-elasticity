@@ -33,7 +33,6 @@ class ElasticityFieldMLP(nn.Module):
         acts = {
             "tanh": nn.Tanh(),
             "softplus": nn.Softplus(),
-            "relu": nn.ReLU(),
         }
         if act.lower() not in acts:
             raise ValueError(f"Activation '{act}' not supported. Use: {list(acts.keys())}")

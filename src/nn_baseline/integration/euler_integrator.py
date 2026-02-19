@@ -56,8 +56,8 @@ class EulerIntegrator:
             step = total / float(self.steps_per_dim)
             for _ in range(self.steps_per_dim):
                 dx = torch.zeros_like(x)
-                dx[:, j] = step
+                dx[:, j] = step          
                 E = E_model(x, c)
                 y = y + torch.einsum("bij,bj->bi", E, dx)
-                x[:, j] = x[:, j] + step
+                x = x + dx              
         return y
