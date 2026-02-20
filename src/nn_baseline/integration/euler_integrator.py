@@ -51,13 +51,19 @@ class EulerIntegrator:
         x = x0.clone()
         y = y0.clone()
 
-        for j in order:
-            total = xT[:, j] - x0[:, j]
-            step = total / float(self.steps_per_dim)
-            for _ in range(self.steps_per_dim):
-                dx = torch.zeros_like(x)
-                dx[:, j] = step          
-                E = E_model(x, c)
-                y = y + torch.einsum("bij,bj->bi", E, dx)
-                x = x + dx              
+        was_training = E_model.training
+        E_model.eval()
+        try:
+            for j in order:
+                total = xT[:, j] - x0[:, j]
+                step = total / float(self.steps_per_dim)
+                for _ in range(self.steps_per_dim):
+                    dx = torch.zeros_like(x)
+                    dx[:, j] = step
+                    E = E_model(x, c)
+                    y = y + torch.einsum("bij,bj->bi", E, dx)
+                    x = x + dx
+        finally:
+            E_model.train(was_training)
+
         return y

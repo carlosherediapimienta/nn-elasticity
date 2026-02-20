@@ -22,7 +22,7 @@ class ElasticityFirstLoss(nn.Module):
         huber_delta: float = 1.0,
         lambda_cl: float = 0.0,
         lambda_pos: float = 0.0,
-        reduction: str = "mean",
+        reduction: str = "none",
         closure_pair_subsample: Optional[int] = None,
     ):
         super().__init__()
