@@ -18,6 +18,7 @@ class Y0MLP(nn.Module):
         hidden: int = 128,
         depth: int = 2,
         act: str = "tanh",
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.n = n
@@ -37,9 +38,9 @@ class Y0MLP(nn.Module):
             raise ValueError(f"Activation '{act}' not supported. Use: {list(acts.keys())}")
         activation = acts[act.lower()]
 
-        layers = [nn.Linear(d_context, hidden), activation]
+        layers = [nn.Linear(d_context, hidden), activation, nn.Dropout(dropout)]
         for _ in range(depth - 1):
-            layers += [nn.Linear(hidden, hidden), activation]
+            layers += [nn.Linear(hidden, hidden), activation, nn.Dropout(dropout)]
         layers += [nn.Linear(hidden, n)]
         self.net = nn.Sequential(*layers)
 
