@@ -16,7 +16,8 @@ class ElasticityFieldMLP(nn.Module):
         d_context: int = 0,
         hidden: int = 256,
         depth: int = 3,
-        act: str = "tanh"
+        act: str = "tanh",
+        dropout: float = 0.0,
     ):
         """
         Args:
@@ -25,6 +26,7 @@ class ElasticityFieldMLP(nn.Module):
             hidden: number of hidden neurons per layer
             depth: number of hidden layers
             act: activation ('tanh', 'softplus')
+            dropout: dropout rate between layers (0.0 = no dropout)
         """
         super().__init__()
         self.n = n
@@ -39,9 +41,9 @@ class ElasticityFieldMLP(nn.Module):
         activation = acts[act.lower()]
 
         din = n + d_context
-        layers = [nn.Linear(din, hidden), activation]
+        layers = [nn.Linear(din, hidden), activation, nn.Dropout(dropout)]
         for _ in range(depth - 1):
-            layers += [nn.Linear(hidden, hidden), activation]
+            layers += [nn.Linear(hidden, hidden), activation, nn.Dropout(dropout)]
         layers += [nn.Linear(hidden, n * n)]
         self.net = nn.Sequential(*layers)
 
