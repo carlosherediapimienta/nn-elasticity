@@ -1,3 +1,4 @@
-from .cross_derivatives_diagnostics import CrossDerivativesDiagnostics
+from .symmetry_elasticity import SymmetryElasticityDiagnostics
+from .closure import ClosureDiagnostics
 
-__all__ = ['CrossDerivativesDiagnostics']
+__all__ = ['SymmetryElasticityDiagnostics', 'ClosureDiagnostics']

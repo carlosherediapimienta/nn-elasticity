@@ -1,6 +1,4 @@
 import torch
-from typing import Optional
-
 
 class DemandCalculator:
     """
@@ -18,31 +16,67 @@ class DemandCalculator:
 
     def run(
         self,
-        b: torch.Tensor,
-        beta: torch.Tensor,
-        w: torch.Tensor,
-        x: torch.Tensor,
-        Bx: torch.Tensor,
-        A: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        b: torch.Tensor,       # (B, n)
+        beta: torch.Tensor,    # (B, n)
+        w: torch.Tensor,       # (B, n, K)
+        x: torch.Tensor,       # (B, n)
+        Bx: torch.Tensor,      # (B, n, K)
+        dBx: torch.Tensor,     # (B, n, K)
+        ddBx: torch.Tensor,    # (B, n, K)
+        IBx: torch.Tensor,     # (B, n, K)
+        u: torch.Tensor,       # (B, n_cross, K, K)
+        pairs: torch.Tensor,   # (2, n_cross)
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Args:
-            b:   (B, n) intercept
-            beta:(B, n) own-price linear coefficient
-            w:   (B, n, K) spline weights
-            x:   (B, n) log_price per product
-            Bx:  (B, n, K) evaluated spline bases at x
-            A:   (B, n, n) symmetric cross-price matrix, zero diagonal (optional)
-
         Returns:
-            y_hat: (B, n) predicted demand (log-space)
+            y_hat:   (B, n)    predicted demand
+            eps_hat: (B, n)    own-price elasticity (diagonal of E)
+            E:       (B, n, n) full elasticity matrix ∂y_i/∂x_j
         """
-        x = x.float()
-        y_hat = b + beta * x + (w * Bx).sum(dim=-1)   # (B, n)
+        B, n, K = Bx.shape
+        i_idx, j_idx = pairs[0], pairs[1]   # (n_cross,)
 
-        if A is not None:
-            # cross_i = Σ_j A_{ij} * x_j  (A diagonal = 0, so only j≠i contributes)
-            cross_term = (A @ x.unsqueeze(-1)).squeeze(-1)  # (B, n)
-            y_hat = y_hat + cross_term
+        # ── Own-price terms ──────────────────────────────────────────────────
+        y_hat   = b + beta * x + (w * Bx).sum(dim=-1)   # (B, n)
+        eps_hat = beta + (w * dBx).sum(dim=-1)           # (B, n)
 
-        return y_hat
+        # ── Cross-product spline terms ────────────────────────────────────────
+        Bx_i   = Bx[:,  i_idx, :]   # (B, n_cross, K)
+        Bx_j   = Bx[:,  j_idx, :]
+        dBx_i  = dBx[:, i_idx, :]
+        dBx_j  = dBx[:, j_idx, :]
+        ddBx_j = ddBx[:,j_idx, :]
+        IBx_i  = IBx[:, i_idx, :]
+
+        # y_i  += Σ_{k,l} u_{p,k,l} * B_k(x_i)  * B_l(x_j)
+        contrib_yi = torch.einsum('bpk,bpkl,bpl->bp', Bx_i,  u, Bx_j).to(Bx.dtype)
+
+        # y_j  += Σ_{k,l} u_{p,k,l} * Ψ_k(x_i)  * B'_l(x_j)
+        contrib_yj = torch.einsum('bpk,bpkl,bpl->bp', IBx_i, u, dBx_j).to(Bx.dtype)
+
+        # eps_i += Σ_{k,l} u_{p,k,l} * B'_k(x_i) * B_l(x_j)
+        contrib_ei = torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j).to(Bx.dtype)
+
+        # eps_j += Σ_{k,l} u_{p,k,l} * Ψ_k(x_i)  * B''_l(x_j)
+        contrib_ej = torch.einsum('bpk,bpkl,bpl->bp', IBx_i, u, ddBx_j).to(Bx.dtype)
+
+        i_exp = i_idx.unsqueeze(0).expand(B, -1)
+        j_exp = j_idx.unsqueeze(0).expand(B, -1)
+
+        y_hat   = y_hat.scatter_add(1, i_exp, contrib_yi)
+        y_hat   = y_hat.scatter_add(1, j_exp, contrib_yj)
+        eps_hat = eps_hat.scatter_add(1, i_exp, contrib_ei)
+        eps_hat = eps_hat.scatter_add(1, j_exp, contrib_ej)
+
+        # ── Elasticity matrix E[b, i, j] = ∂y_i/∂x_j ────────────────────────
+        E = torch.zeros(B, n, n, device=Bx.device, dtype=Bx.dtype)
+
+        # Diagonal: own-price
+        E[:, torch.arange(n), torch.arange(n)] = eps_hat
+
+        # Off-diagonal: cross-price  E_{ij} = Σ_{k,l} u_{p,k,l} * B_k(x_i) * B'_l(x_j)
+        E_cross = torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)   # (B, n_cross)
+        E[:, i_idx, j_idx] = E_cross.to(E.dtype)   # cast float16 → float32
+        E[:, j_idx, i_idx] = E_cross.to(E.dtype)
+
+        return y_hat, eps_hat, E
