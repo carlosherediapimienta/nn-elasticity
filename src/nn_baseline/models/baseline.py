@@ -4,8 +4,8 @@ from .elasticity_first_predictor import ElasticityFirstPredictor
 
 class BaselineModel(nn.Module):
     """
-    Modelo completo elasticity-first. Espejo de ICDN_1D para el baseline.
-    Desempaqueta el batch, construye el contexto c y llama al predictor.
+    Full elasticity-first model. Mirror of ICDN_1D for the baseline.
+    Unpacks the batch, builds the context c and calls the predictor.
     Public API: forward()
     """
 
@@ -26,12 +26,12 @@ class BaselineModel(nn.Module):
     def forward(self, batch: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
-            batch: dict con claves del DemandDataset
+            batch: dict with keys of DemandDataset
 
         Returns:
             y_hat: (B,)
-            x_nd:  (B, 1)  log-precio como tensor 2D para el integrador
-            c:     (B, d)  vector de contexto
+            x_nd:  (B, 1)  log-price as 2D tensor for the integrator
+            c:     (B, d)  vector of context
         """
         lag_features = torch.stack([batch[k] for k in self.lag_keys], dim=1)
 

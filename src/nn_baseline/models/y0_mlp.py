@@ -5,10 +5,10 @@ from typing import Optional
 
 class Y0MLP(nn.Module):
     """
-    Modelo para el anclaje y0(c) = \hat y(x0, c) en el baseline elasticity-first.
+    Model for anchoring y0(c) = \hat y(x0, c) in the baseline elasticity-first.
 
-    - Si d_context > 0: MLP(c) -> R^n.
-    - Si d_context == 0: parámetro global aprendible en R^n (bias).
+    - If d_context > 0: MLP(c) -> R^n.
+    - If d_context == 0: global learnable parameter in R^n (bias).
     """
 
     def __init__(
@@ -46,8 +46,8 @@ class Y0MLP(nn.Module):
     def forward(self, c: Optional[torch.Tensor], batch_size: Optional[int] = None) -> torch.Tensor:
         """
         Args:
-            c: (B, d_context) o None si d_context == 0
-            batch_size: necesario solo si d_context == 0 y c is None
+            c: (B, d_context) or None if d_context == 0
+            batch_size: necessary only if d_context == 0 and c is None
 
         Returns:
             y0: (B, n)
@@ -57,10 +57,10 @@ class Y0MLP(nn.Module):
                 B = c.shape[0]
             else:
                 if batch_size is None:
-                    raise ValueError("batch_size requerido si d_context==0 y c=None")
+                    raise ValueError("batch_size required if d_context==0 and c=None")
                 B = batch_size
             return self.y0.unsqueeze(0).expand(B, -1)
 
         if c is None:
-            raise ValueError("d_context > 0 pero c=None")
+            raise ValueError("d_context > 0 but c=None")
         return self.net(c)

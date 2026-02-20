@@ -6,11 +6,11 @@ from ..integration.euler_integrator import EulerIntegrator
 
 class PathDependenceDiagnostics:
     """
-    Mide la dependencia del orden de integración.
-    gap = ||y_hat(orden natural) - y_hat(orden inverso)||
+    Measures the order dependence of integration.
+    gap = ||y_hat(natural order) - y_hat(reverse order)||
 
     Delegation:
-    - EulerIntegrator: integración numérica coordenada a coordenada
+    - EulerIntegrator: numerical integration coordinate by coordinate
 
     Public API: run()
     """
@@ -22,8 +22,8 @@ class PathDependenceDiagnostics:
     ):
         """
         Args:
-            steps_per_dim: pasos de Euler por dimensión
-            integrator: instancia de EulerIntegrator (opcional, dependency injection)
+            steps_per_dim: steps of Euler by dimension
+            integrator: instance of EulerIntegrator (optional, dependency injection)
         """
         self.integrator = integrator or EulerIntegrator(steps_per_dim=steps_per_dim)
 
@@ -37,14 +37,14 @@ class PathDependenceDiagnostics:
     ) -> torch.Tensor:
         """
         Args:
-            E_model: modelo que devuelve E(x, c): (B, n, n)
-            x0: (B, n) log-precios origen
-            y0: (B, n) demanda en el punto origen
-            xT: (B, n) log-precios destino
-            c:  (B, d) vector de contexto, o None
+            E_model: module that returns E(x, c): (B, n, n)
+            x0: (B, n) log-prices origin
+            y0: (B, n) demand at the origin point
+            xT: (B, n) log-prices destination
+            c:  (B, d) vector of context, or None
 
         Returns:
-            gap: escalar, media sobre el batch de ||y_a - y_b||
+            gap: scalar, mean over the batch of ||y_a - y_b||
         """
         n = x0.shape[1]
         order_a = list(range(n))
