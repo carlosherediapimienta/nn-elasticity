@@ -5,8 +5,8 @@ from typing import Optional
 
 class ElasticityFieldMLP(nn.Module):
     """
-    Aprende E_phi(x,c) in R^{n x n}.
-    Usa activaciones suaves (tanh/softplus) para que las derivadas existan.
+    Learns E_phi(x,c) in R^{n x n}.
+    Uses smooth activations (tanh/softplus) so that derivatives exist.
     Public API: forward()
     """
 
@@ -20,11 +20,11 @@ class ElasticityFieldMLP(nn.Module):
     ):
         """
         Args:
-            n: dimensión del espacio de precios
-            d_context: dimensión del vector de contexto (0 = sin contexto)
-            hidden: neuronas por capa oculta
-            depth: número de capas ocultas
-            act: activación ('tanh', 'softplus', 'relu')
+            n: dimension of the price space
+            d_context: dimension of the context vector (0 = no context)
+            hidden: number of hidden neurons per layer
+            depth: number of hidden layers
+            act: activation ('tanh', 'softplus')
         """
         super().__init__()
         self.n = n
@@ -48,15 +48,15 @@ class ElasticityFieldMLP(nn.Module):
     def forward(self, x: torch.Tensor, c: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Args:
-            x: (B, n) log-precios
-            c: (B, d_context) vector de contexto, o None
+            x: (B, n) log-prices
+            c: (B, d_context) vector of context, or None
 
         Returns:
-            E: (B, n, n) campo de elasticidad
+            E: (B, n, n) elasticity field
         """
         if self.d_context > 0:
             if c is None:
-                raise ValueError("d_context > 0 pero c=None")
+                raise ValueError("d_context > 0 but c=None")
             inp = torch.cat([x, c], dim=-1)
         else:
             inp = x
