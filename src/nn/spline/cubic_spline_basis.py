@@ -33,34 +33,18 @@ class CubicSplineBasis(nn.Module):
         """Number of knots (dimension of the basis)."""
         return self.knots.shape[1]
 
-    def _x_scaled(self, x: torch.Tensor) -> torch.Tensor:
-        """Scale x for numerical stability."""
-        x = x.float().view(-1, 1)  # (B,1)
-        return (x - self.shift) / self.scale
-
     def forward(self, x: torch.Tensor):
-        """
-        Calculate basis spline and its derivatives.
-        
-        Args:
-            x: (B,) or (B,1) tensor with input values
-        
-        Returns:
-            Bx: (B, K) values of the basis
-            dBx: (B, K) first derivative w.r.t. x ORIGINAL
-            ddBx: (B, K) second derivative w.r.t. x ORIGINAL
-        """
-        xs = self._x_scaled(x)                      # (B,1) scaled
-        u = F.relu(xs - self.knots)                 # (B,K)
+        xs = x.float().view(-1, 1)              # (B, 1)
+        xs = (xs - self.shift) / self.scale     # escalado
+        u  = F.relu(xs - self.knots)            # (B, K)  ← knots ya están pre-escalados en __init__
 
-        Bx_s = u**3                                 # (B,K) in scaled space
-        dBx_s = 3.0 * (u**2)                        # d/dx_s
-        ddBx_s = 6.0 * u                            # d2/dx_s2
+        Bx_s   = u ** 3
+        dBx_s  = 3.0 * (u ** 2)
+        ddBx_s = 6.0 * u
 
-        # chain rule back to ORIGINAL x
         inv_scale = 1.0 / self.scale
-        Bx = Bx_s
-        dBx = dBx_s * inv_scale
-        ddBx = ddBx_s * (inv_scale**2)
+        Bx   = Bx_s
+        dBx  = dBx_s  * inv_scale
+        ddBx = ddBx_s * (inv_scale ** 2)
 
-        return Bx, dBx, ddBx
+        return Bx, dBx, ddBx                    # (B, K)

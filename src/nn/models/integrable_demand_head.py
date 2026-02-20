@@ -4,7 +4,7 @@ from ..context import ContextMLP
 from ..heads import DemandParameterHead, DemandCalculator, ElasticityCalculator
 
 
-class IntegrableDemandHead1D(nn.Module):
+class IntegrableDemandHead(nn.Module):
     """
     Potential model head for log-linear demand:
       y_hat = b(c) + beta(c)*x + sum_k w_k(c) * B_k(x)
@@ -25,6 +25,7 @@ class IntegrableDemandHead1D(nn.Module):
         self,
         context_dim: int,
         K_splines: int,
+        n: int,
         hidden=(256, 128, 64),
         act="tanh",
         dropout=0.0,
@@ -63,6 +64,7 @@ class IntegrableDemandHead1D(nn.Module):
         self.param_head = parameter_head or DemandParameterHead(
             hidden_dim=H,
             K_splines=K_splines,
+            n=n,
             enforce_negative_beta=enforce_negative_beta
         )
         

@@ -30,6 +30,4 @@ class DemandCalculator:
         Returns:
             y_hat: (B,) predicted demand (log-space)
         """
-        x1 = x.float().view(-1)  # (B,)
-        y_hat = b + beta * x1 + (w * Bx).sum(dim=-1)
-        return y_hat
+        return  b + beta * x.float() + (w * Bx).sum(dim=-1)
