@@ -1,5 +1,5 @@
-from .preprocessing import ColumnEncoder, ColumnConverter
-from .dataset import DatasetSchema, DemandDataset, DataLoaderFactory
+from .preprocessing import ColumnEncoder
+from .dataset import DataLoaderFactory
 from .spline import StatisticsCalculator, KnotGenerator
 from .spline.spline_builder import SplineBuilder
 
@@ -18,9 +18,6 @@ def build_price_spline_from_train(x_train_np, K=16):
 __all__ = [
     # Classes
     'ColumnEncoder',
-    'ColumnConverter',
-    'DatasetSchema',
-    'DemandDataset',
     'DataLoaderFactory',
     'StatisticsCalculator',
     'KnotGenerator',

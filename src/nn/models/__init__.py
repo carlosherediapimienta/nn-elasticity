@@ -1,7 +1,7 @@
-from .integrable_demand_head import IntegrableDemandHead1D
-from .icdn_1d import ICDN_1D
+from .integrable_demand_head import IntegrableDemandHead
+from .icdn import ICDN
 
 __all__ = [
-    'IntegrableDemandHead1D',
-    'ICDN_1D',
+    'IntegrableDemandHead',
+    'ICDN',
 ]
