@@ -57,15 +57,20 @@ class ClosureDiagnostics:
             cs = None if c1 is None else c1.unsqueeze(0)
             return E_model(xs, cs)[0]
 
-        if c is None:
-            dE_dx = vmap(jacrev(lambda x1: E_single(x1, None)))(
-                x.detach().requires_grad_(True)
-            )
-        else:
-            dE_dx = vmap(jacrev(lambda x1, c1: E_single(x1, c1), argnums=0))(
-                x.detach().requires_grad_(True), c.detach()
-            )
-
+        was_training = E_model.training
+        E_model.eval()
+        try:
+            if c is None:
+                dE_dx = vmap(jacrev(lambda x1: E_single(x1, None)))(
+                    x.detach().requires_grad_(True)
+                )
+            else:
+                dE_dx = vmap(jacrev(lambda x1, c1: E_single(x1, c1), argnums=0))(
+                    x.detach().requires_grad_(True), c.detach()
+                )
+        finally:
+            E_model.train(was_training)
+            
         res = dE_dx - dE_dx.permute(0, 1, 3, 2)
         residuals_upper = res[:, :, jk[0], jk[1]]
         per_sample = (residuals_upper ** 2).sum(dim=(1, 2))

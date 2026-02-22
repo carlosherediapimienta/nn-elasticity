@@ -5,34 +5,29 @@ from torch.func import vmap, jacrev
 
 
 @dataclass
-class CrossDerivativesOut:
-    """Result of the cross-derivatives symmetry diagnostic."""
-    penalty: torch.Tensor          # scalar: mean of ||J - J^T||²
+class ClosureOut:
+    """Result of the closure diagnostic."""
+    penalty: torch.Tensor          # scalar: mean of ||c^2||
     per_sample: torch.Tensor       # (B,)
-    residuals_upper: torch.Tensor  # (B, n_pairs): upper triangle of J - J^T
+    residuals_upper: torch.Tensor  # (B, n, n_pairs)
 
 
-class CrossDerivativesDiagnostics:
+class ClosureDiagnostics:
     """
-    Certifies Slutsky symmetry of the demand Jacobian:
-      S_{ij} = ∂y_i/∂x_j - ∂y_j/∂x_i  →  debe ser 0.
-
-    Para el ICDN extendido con matriz A simétrica:
-      J_{ij} = A_{ij}(c) = A_{ji}(c)  →  J = J^T exactamente por construcción.
-
-    Penalty = mean_B( Σ_{i<j} S_{ij}² )  →  debe ser 0.0 para ICDN.
-
+    Calculates closure residuals: c^i_{jk} = ∂_k E_{i,j} - ∂_j E_{i,k}, for j<k.
+    Penalizes sum_{i,j<k} c^2. Cost ~ O(B * n^3).
+    Requires PyTorch >= 2.0 (torch.func).
     Public API: run()
     """
 
-    def run(self, model: nn.Module, batch: dict) -> CrossDerivativesOut:
+    def run(self, model: nn.Module, batch: dict) -> ClosureOut:
         """
         Args:
             model: ICDN instance
-            batch: dict con todos los tensores del batch
+            batch: dict with all batch tensors
 
         Returns:
-            CrossDerivativesOut(penalty, per_sample, residuals_upper)
+            ClosureOut(penalty, per_sample, residuals_upper)
         """
         model.eval()
         device = next(model.parameters()).device
@@ -59,19 +54,20 @@ class CrossDerivativesDiagnostics:
             y_hat, _, _ = model.head.run(c_b, x_b, Bx, dBx)
             return y_hat[0]  # (n,)
 
-        # J_{ij} = ∂y_i/∂x_j,  shape (B, n, n)
-        J = vmap(jacrev(demand_fn, argnums=0))(
+        # D[b, i, j, k] = ∂_{x_k} ∂_{x_j} y_i
+        D = vmap(jacrev(jacrev(demand_fn, argnums=0), argnums=0))(
             x.detach().requires_grad_(True), c.detach()
-        )
+        )  # (B, n, n, n)
+
+        # Schwarz residual: D[b,i,j,k] - D[b,i,k,j]  →  should be ~0
+        res = D - D.permute(0, 1, 3, 2)  # (B, n, n, n)
 
         jk = torch.triu_indices(n, n, offset=1, device=device)
-        res = J - J.permute(0, 2, 1)             # (B, n, n)
-        residuals_upper = res[:, jk[0], jk[1]]   # (B, n_pairs)
-
-        per_sample = (residuals_upper ** 2).sum(dim=-1)
-        penalty    = per_sample.mean()
-
-        return CrossDerivativesOut(
+        residuals_upper = res[:, :, jk[0], jk[1]]           # (B, n, n_pairs)
+        per_sample = (residuals_upper ** 2).mean(dim=(1, 2))
+        penalty = per_sample.mean()
+        
+        return ClosureOut(
             penalty=penalty,
             per_sample=per_sample,
             residuals_upper=residuals_upper,

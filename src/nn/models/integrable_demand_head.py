@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from ..context import ContextMLP
-from ..heads import DemandParameterHead, DemandCalculator, ElasticityCalculator
+from ..heads import DemandParameterHead, DemandCalculator
 
 
 class IntegrableDemandHead(nn.Module):
@@ -40,7 +40,6 @@ class IntegrableDemandHead(nn.Module):
         context_encoder: ContextMLP | None = None,
         parameter_head: DemandParameterHead | None = None,
         demand_calc: DemandCalculator | None = None,
-        elasticity_calc: ElasticityCalculator | None = None,
     ):
         super().__init__()
 
@@ -57,7 +56,6 @@ class IntegrableDemandHead(nn.Module):
         )
 
         self.demand_calc    = demand_calc    or DemandCalculator()
-        self.elasticity_calc = elasticity_calc or ElasticityCalculator()
 
     def run(
         self,
@@ -65,38 +63,26 @@ class IntegrableDemandHead(nn.Module):
         x: torch.Tensor,
         Bx: torch.Tensor,
         dBx: torch.Tensor,
+        ddBx: torch.Tensor,
+        IBx: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-        """
-        Args:
-            c:   (B, context_dim)
-            x:   (B, n) log_price per product
-            Bx:  (B, n, K) spline bases at x
-            dBx: (B, n, K) spline derivatives at x
 
-        Returns:
-            y_hat:   (B, n) predicted demand
-            eps_hat: (B, n) own-price elasticity
-            aux:     dict with {'b', 'beta', 'w', 'A'}
-                       A: (B, n, n) symmetric cross-price elasticity matrix
-        """
-        h      = self.ctx(c)           # (B, H)
-        params = self.param_head.run(h)  # {b, beta, w, A}
+        h      = self.ctx(c)
+        params = self.param_head.run(h)   # {b, beta, w, u, pairs}
 
-        y_hat = self.demand_calc.run(
+        y_hat, eps_hat, E = self.demand_calc.run(
             b=params['b'],
             beta=params['beta'],
             w=params['w'],
             x=x,
             Bx=Bx,
-            A=params['A'],             # cross-price term
-        )
-
-        eps_hat = self.elasticity_calc.run(
-            beta=params['beta'],
-            w=params['w'],
             dBx=dBx,
+            ddBx=ddBx,
+            IBx=IBx,
+            u=params['u'],
+            pairs=params['pairs'],
         )
-
+        params['E'] = E
         return y_hat, eps_hat, params
 
     def forward(self, *args, **kwargs):

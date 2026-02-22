@@ -35,30 +35,26 @@ class ICDN(nn.Module):
 
 
     def run(self, batch, return_parts=False):
-        # 1. Contexto — API forward(batch) en vez de run(store, upc, ...)
-        c = self.context_builder(batch)                              # (B, d)
+        c = self.context_builder(batch)
+        x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
 
-        # 2. Precios → (B, n)
-        x = torch.stack(
-            [batch[f"log_price_{i}"] for i in range(self.n)], dim=1
-        )
-
-        # 3. Splines por producto → (B, n, K)
-        Bx_list, dBx_list, ddBx_list = [], [], []
+        Bx_list, dBx_list, ddBx_list, IBx_list = [], [], [], []
         for i, spline in enumerate(self.price_splines):
-            Bx_i, dBx_i, ddBx_i = spline(x[:, i])      # cada una: (B, K)
+            Bx_i, dBx_i, ddBx_i, IBx_i = spline(x[:, i])   # ← ahora 4 salidas
             Bx_list.append(Bx_i)
             dBx_list.append(dBx_i)
             ddBx_list.append(ddBx_i)
-        Bx   = torch.stack(Bx_list,   dim=1)             # (B, n, K)
-        dBx  = torch.stack(dBx_list,  dim=1)             # (B, n, K)
-        ddBx = torch.stack(ddBx_list, dim=1)             # (B, n, K)
+            IBx_list.append(IBx_i)
 
-        # 4. Head → y_hat: (B, n), eps_hat: (B, n)
-        y_hat, eps_hat, aux = self.head.run(c, x, Bx, dBx)
+        Bx   = torch.stack(Bx_list,   dim=1)
+        dBx  = torch.stack(dBx_list,  dim=1)
+        ddBx = torch.stack(ddBx_list, dim=1)
+        IBx  = torch.stack(IBx_list,  dim=1)   # ← nuevo (B, n, K)
+
+        y_hat, eps_hat, aux = self.head.run(c, x, Bx, dBx, ddBx, IBx)
 
         if return_parts:
-            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx})
+            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx, "IBx": IBx})
             return y_hat, eps_hat, aux
 
         return y_hat, eps_hat

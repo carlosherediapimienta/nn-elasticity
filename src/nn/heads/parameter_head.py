@@ -27,37 +27,30 @@ class DemandParameterHead(nn.Module):
         super().__init__()
         self.n = n
         self.K_splines = K_splines
-        self.enforce_negative_beta = enforce_negative_beta
+        self.n_cross = n * (n - 1) // 2
 
         self.head_b     = nn.Linear(hidden_dim, n)
         self.head_beta  = nn.Linear(hidden_dim, n)
         self.head_w     = nn.Linear(hidden_dim, n * K_splines)
-        n_cross = n * (n - 1) // 2
-        self.head_cross = nn.Linear(hidden_dim, n_cross)
+        self.head_cross = nn.Linear(hidden_dim, self.n_cross * K_splines * K_splines)
 
-        # Pre-compute projection tensor P: (n_cross, n, n)
-        # P[k, i, j] = P[k, j, i] = 1 for the k-th (i,j) upper-triangle pair
-        # Using einsum('bk,kij->bij', raw_cross, P) builds A out-of-place → vmap-safe
-        idx = torch.triu_indices(n, n, offset=1)   # (2, n_cross)
-        P = torch.zeros(n_cross, n, n)
-        for k in range(n_cross):
-            i, j = idx[0, k].item(), idx[1, k].item()
-            P[k, i, j] = 1.0
-            P[k, j, i] = 1.0
-        self.register_buffer('_P', P)              # (n_cross, n, n), moves with .to(device)
+        self.enforce_negative_beta = enforce_negative_beta
+
+        # Pre-compute pair indices i<j
+        idx = torch.triu_indices(n, n, offset=1)  # (2, n_cross)
+        self.register_buffer('_pairs', idx)
 
     def run(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
         B = h.shape[0]
+        K = self.K_splines
 
         b        = self.head_b(h)                                  # (B, n)
         beta_raw = self.head_beta(h)                               # (B, n)
         beta     = -F.softplus(beta_raw) if self.enforce_negative_beta else beta_raw
-        w        = self.head_w(h).view(B, self.n, self.K_splines) # (B, n, K)
+        w        = self.head_w(h).view(B, self.n, K) # (B, n, K)
+        u        = self.head_cross(h).view(B, self.n_cross, K, K) # (B, n_cross, K, K)
 
-        raw_cross = self.head_cross(h)                             # (B, n_cross)
-        A = torch.einsum('bk,kij->bij', raw_cross, self._P)       # (B, n, n), sym, diag=0
-
-        return {'b': b, 'beta': beta, 'w': w, 'A': A}
+        return {'b': b, 'beta': beta, 'w': w, 'u': u, 'pairs': self._pairs}
 
     def forward(self, *args, **kwargs):
         return self.run(*args, **kwargs)
