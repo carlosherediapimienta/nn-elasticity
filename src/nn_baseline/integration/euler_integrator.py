@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Sequence
+from ..utils import eval_dropouts
 
 
 class EulerIntegrator:
@@ -51,9 +52,7 @@ class EulerIntegrator:
         x = x0.clone()
         y = y0.clone()
 
-        was_training = E_model.training
-        E_model.eval()
-        try:
+        with eval_dropouts(E_model):
             for j in order:
                 total = xT[:, j] - x0[:, j]
                 step = total / float(self.steps_per_dim)
@@ -63,7 +62,5 @@ class EulerIntegrator:
                     E = E_model(x, c)
                     y = y + torch.einsum("bij,bj->bi", E, dx)
                     x = x + dx
-        finally:
-            E_model.train(was_training)
 
         return y

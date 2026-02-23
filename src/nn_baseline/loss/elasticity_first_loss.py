@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import Optional, Dict
 
 from ..diagnostics.closure_diagnostics import ClosureDiagnostics
+from ..utils import eval_dropouts
 
 
 class ElasticityFirstLoss(nn.Module):
@@ -58,8 +59,9 @@ class ElasticityFirstLoss(nn.Module):
         fit = fit_per_elem.sum(dim=-1).mean()
 
         # Positivity penalty: ReLU de diagonal (own elasticities)
-        E = E_model(x, c)                                  # (B, n, n)
-        diag = torch.diagonal(E, dim1=-2, dim2=-1)          # (B, n)
+        with eval_dropouts(E_model):
+            E = E_model(x, c)                              # (B, n, n)
+        diag = torch.diagonal(E, dim1=-2, dim2=-1)
         pos = torch.relu(diag).mean()
 
         # Closure penalty (optional)
