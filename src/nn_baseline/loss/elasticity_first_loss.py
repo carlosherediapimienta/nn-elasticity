@@ -23,11 +23,10 @@ class ElasticityFirstLoss(nn.Module):
         huber_delta: float = 1.0,
         lambda_cl: float = 0.0,
         lambda_pos: float = 0.0,
-        reduction: str = "none",
         closure_pair_subsample: Optional[int] = None,
     ):
         super().__init__()
-        self.huber = nn.HuberLoss(delta=huber_delta, reduction=reduction)
+        self.huber = nn.HuberLoss(delta=huber_delta, reduction="none")
         self.lambda_cl = float(lambda_cl)
         self.lambda_pos = float(lambda_pos)
         self.closure = ClosureDiagnostics(pair_subsample=closure_pair_subsample)
