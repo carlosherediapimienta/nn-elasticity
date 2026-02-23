@@ -3,6 +3,7 @@ import torch.nn as nn
 from dataclasses import dataclass
 from typing import Optional
 from torch.func import vmap, jacrev
+from ..utils import eval_dropouts
 
 
 @dataclass
@@ -57,9 +58,7 @@ class ClosureDiagnostics:
             cs = None if c1 is None else c1.unsqueeze(0)
             return E_model(xs, cs)[0]
 
-        was_training = E_model.training
-        E_model.eval()
-        try:
+        with eval_dropouts(E_model):
             if c is None:
                 dE_dx = vmap(jacrev(lambda x1: E_single(x1, None)))(
                     x.detach().requires_grad_(True)
@@ -68,8 +67,6 @@ class ClosureDiagnostics:
                 dE_dx = vmap(jacrev(lambda x1, c1: E_single(x1, c1), argnums=0))(
                     x.detach().requires_grad_(True), c.detach()
                 )
-        finally:
-            E_model.train(was_training)
             
         res = dE_dx - dE_dx.permute(0, 1, 3, 2)
         residuals_upper = res[:, :, jk[0], jk[1]]

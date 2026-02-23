@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import Optional, Dict
 
 from ..diagnostics.closure_diagnostics import ClosureDiagnostics
+from ..utils import eval_dropouts
 
 
 class ElasticityFirstLoss(nn.Module):
@@ -22,11 +23,10 @@ class ElasticityFirstLoss(nn.Module):
         huber_delta: float = 1.0,
         lambda_cl: float = 0.0,
         lambda_pos: float = 0.0,
-        reduction: str = "none",
         closure_pair_subsample: Optional[int] = None,
     ):
         super().__init__()
-        self.huber = nn.HuberLoss(delta=huber_delta, reduction=reduction)
+        self.huber = nn.HuberLoss(delta=huber_delta, reduction="none")
         self.lambda_cl = float(lambda_cl)
         self.lambda_pos = float(lambda_pos)
         self.closure = ClosureDiagnostics(pair_subsample=closure_pair_subsample)
@@ -58,8 +58,9 @@ class ElasticityFirstLoss(nn.Module):
         fit = fit_per_elem.sum(dim=-1).mean()
 
         # Positivity penalty: ReLU de diagonal (own elasticities)
-        E = E_model(x, c)                                  # (B, n, n)
-        diag = torch.diagonal(E, dim1=-2, dim2=-1)          # (B, n)
+        with eval_dropouts(E_model):
+            E = E_model(x, c)                              # (B, n, n)
+        diag = torch.diagonal(E, dim1=-2, dim2=-1)
         pos = torch.relu(diag).mean()
 
         # Closure penalty (optional)
