@@ -15,9 +15,7 @@ class MultiProductContextEmbeddings(nn.Module):
         self,
         n: int,
         n_stores: int,
-        n_weeks: int,
         d_store: int = 24,
-        d_week: int = 12,
         fourier_period: float = 52.0,
         fourier_harmonics: int = 4,
         include_trend: bool = True,
@@ -28,9 +26,7 @@ class MultiProductContextEmbeddings(nn.Module):
         Args:
             n:               number of products
             n_stores:        number of unique stores
-            n_weeks:         number of unique weeks
             d_store:         store embedding dimension
-            d_week:          week embedding dimension
             fourier_period:  period for Fourier features (weeks)
             fourier_harmonics: number of Fourier harmonics
             include_trend:   include normalized trend scalar
@@ -42,7 +38,6 @@ class MultiProductContextEmbeddings(nn.Module):
         self.week_max = week_max
 
         self.emb_store = nn.Embedding(n_stores, d_store)
-        self.emb_week  = nn.Embedding(n_weeks,  d_week)
         self.time_features = FourierTimeFeatures(
             period=fourier_period,
             harmonics=fourier_harmonics,
@@ -54,7 +49,6 @@ class MultiProductContextEmbeddings(nn.Module):
         """Total context dimension."""
         return (
             self.emb_store.embedding_dim +   # store embedding
-            self.emb_week.embedding_dim  +   # week embedding
             self.time_features.out_dim   +   # Fourier + trend
             4                            +   # on_promo, promo_B, promo_C, promo_S
             4 * self.n + 1                   # per-product lags + week_gap_1
@@ -69,7 +63,6 @@ class MultiProductContextEmbeddings(nn.Module):
             c: (B, out_dim) context vector
         """
         e_s = self.emb_store(batch["store_code"].long())
-        e_w = self.emb_week(batch["week_id"].long())
         ft  = self.time_features(
             batch["week_id"],
             week_min=self.week_min,
@@ -91,4 +84,4 @@ class MultiProductContextEmbeddings(nn.Module):
         lag_parts.append(batch["week_gap_1"].unsqueeze(1))
         lags = torch.cat(lag_parts, dim=1)
 
-        return torch.cat([e_s, e_w, ft, promo, lags], dim=1)
+        return torch.cat([e_s, ft, promo, lags], dim=1)
