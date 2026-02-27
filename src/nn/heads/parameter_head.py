@@ -2,17 +2,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class DemandParameterHead(nn.Module):
     """
-    Generate parameters b(c), beta(c), w(c), A(c) from context representation.
+    Generates parameters b(c), beta(c), w(c), u(c) from the context representation.
 
     Parameters:
-    - b:    intercept term                           (B, n)
-    - beta: linear own-price coefficient             (B, n)
-    - w:    spline weights                           (B, n, K)
-    - A:    symmetric cross-price matrix, zero diag  (B, n, n)
-              A_{ij}(c) = ∂y_i/∂x_j  for i≠j
+    - b:    intercept per product                          (B, n)
+    - beta: linear own-price coefficient                   (B, n)
+    - w:    own-price spline weights                       (B, n, K)
+    - u:    cross-price weight tensor per pair (i<j)       (B, n_cross, K, K)
+              u_{p,k,l} weights B_k(x_i) * B_l(x_j) in the cross potential
 
     Public API: run().
     """

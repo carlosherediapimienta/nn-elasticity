@@ -6,24 +6,26 @@ from ..heads import DemandParameterHead, DemandCalculator
 
 class IntegrableDemandHead(nn.Module):
     """
-    Potential model head for multiproduct demand with symmetric cross-price effects:
+    Multiproduct demand head derived from an integrable scalar potential.
 
-      y_i = b_i(c) + beta_i(c)*x_i + Σ_k w_{ik}(c)*B_k(x_i) + Σ_{j≠i} A_{ij}(c)*x_j
+    Potential:
+      Φ(x,c) = Σ_i [b_i·x_i + beta_i/2·x_i² + Σ_k w_{ik}·Ψ_k(x_i)]
+             + Σ_{p=(i<j)} Σ_{k,l} u_{p,k,l} · Ψ_k(x_i) · B_l(x_j)
 
-    Derives from scalar potential Φ(x,c) → Slutsky symmetry exact by construction:
-      ∂y_i/∂x_j = A_{ij}(c) = A_{ji}(c) = ∂y_j/∂x_i
+    Demand  y = ∂Φ/∂x  →  exact Slutsky symmetry by construction.
 
     Own-price elasticity:
-      eps_i = ∂y_i/∂x_i = beta_i(c) + Σ_k w_{ik}(c)*B'_k(x_i)
+      ∂y_i/∂x_i = beta_i(c) + Σ_k w_{ik}·B'_k(x_i)
+                + Σ_{j: p=(i,j)} Σ_{k,l} u_{p,k,l}·B'_k(x_i)·B_l(x_j)
+                + Σ_{j: p=(j,i)} Σ_{k,l} u_{p,k,l}·Ψ_k(x_j)·B''_l(x_i)
 
-    Cross-price elasticity matrix (context-dependent, symmetric):
-      A(c)  (available in aux['A'])
+    Cross-price elasticity (symmetric):
+      ∂y_i/∂x_j = Σ_{k,l} u_{p,k,l}·B_k(x_i)·B'_l(x_j)   for p=(i<j)
 
     Delegation:
-    - ContextMLP:          process context
-    - DemandParameterHead: generate b, beta, w, A
-    - DemandCalculator:    calculate y_hat (with cross terms)
-    - ElasticityCalculator: calculate own-price eps_hat
+    - ContextMLP:           encodes context c → h
+    - DemandParameterHead:  produces b, beta, w, u from h
+    - DemandCalculator:     computes y_hat, eps_hat, E
 
     Public API: run().
     """
