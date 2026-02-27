@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import Optional, Sequence
 
 from ..integration.euler_integrator import EulerIntegrator
+from ..utils import eval_dropouts
 
 
 class ElasticityFirstPredictor(nn.Module):
@@ -91,7 +92,8 @@ class ElasticityFirstPredictor(nn.Module):
         )
 
         if return_E_at_x:
-            E_x = self.E_model(x, c)
+            with eval_dropouts(self.E_model):
+                E_x = self.E_model(x, c)
             return y_hat, E_x
 
         return y_hat
