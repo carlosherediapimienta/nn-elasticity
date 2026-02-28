@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from torch.func import vmap, jacrev
 
 
 @dataclass
@@ -31,8 +30,10 @@ class SymmetryElasticityDiagnostics:
         n = model.n
 
         with torch.no_grad():
-            _, _, aux = model.run(batch, return_parts=True)
-            E = aux['E']   # (B, n, n) — ya calculado analíticamente
+            # Request E explicitly to avoid the O(B*n^2) allocation in the
+            # common training/inference path.
+            _, _, aux = model.run(batch, return_parts=True, compute_E=True)
+            E = aux['E']   # (B, n, n) — calculado analíticamente
 
         jk = torch.triu_indices(n, n, offset=1, device=device)
         res = E - E.permute(0, 2, 1)              # (B, n, n)  — debería ser ~0

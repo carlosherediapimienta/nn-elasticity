@@ -17,18 +17,27 @@ class CurvatureCalculator:
         self,
         w: torch.Tensor,      # (B, n, K)
         ddBx: torch.Tensor,   # (B, n, K)
-        u: torch.Tensor,      # (B, n_cross, K, K)
+        u: torch.Tensor | None,      # (B, n_cross, K, K) or empty
         Bx: torch.Tensor,     # (B, n, K)
         IBx: torch.Tensor,    # (B, n, K)
-        pairs: torch.Tensor,  # (2, n_cross)
+        pairs: torch.Tensor | None,  # (2, n_cross)
     ) -> torch.Tensor:        # (B, n)
-        w, ddBx, u, Bx, IBx = (
-            t.float() for t in (w, ddBx, u, Bx, IBx)
-        )
+        # We do curvature in float32 for numerical stability under AMP.
+        w = w.float()
+        ddBx = ddBx.float()
         B, n, _ = w.shape
-        i_idx, j_idx = pairs[0], pairs[1]
 
         kappa = (w * ddBx).sum(-1)   # (B, n)
+
+        # Fast path: no cross terms
+        if (u is None) or (pairs is None) or (u.numel() == 0) or (pairs.numel() == 0):
+            return kappa
+
+        u = u.float()
+        Bx = Bx.float()
+        IBx = IBx.float()
+
+        i_idx, j_idx = pairs[0], pairs[1]
 
         # i is "left" in pair (i<j): Σ_{k,l} u_{p,k,l} · B''_k(x_i) · B_l(x_j)
         left = einsum('bpk,bpkl,bpl->bp', ddBx[:, i_idx], u, Bx[:, j_idx])

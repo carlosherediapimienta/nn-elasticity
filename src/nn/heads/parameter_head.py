@@ -28,8 +28,10 @@ class DemandParameterHead(nn.Module):
         super().__init__()
         self.n = n
         self.K_splines = K_splines
-        self.n_cross = n * (n - 1) // 2
         self.use_cross = use_cross
+        # If cross-price terms are disabled, treat n_cross as 0 so we don't
+        # allocate or compute cross tensors at all.
+        self.n_cross = (n * (n - 1) // 2) if use_cross else 0
 
         self.head_b    = nn.Linear(hidden_dim, n)
         self.head_beta = nn.Linear(hidden_dim, n)
@@ -39,7 +41,11 @@ class DemandParameterHead(nn.Module):
 
         self.enforce_negative_beta = enforce_negative_beta
 
-        idx = torch.triu_indices(n, n, offset=1)
+        if use_cross:
+            idx = torch.triu_indices(n, n, offset=1)
+        else:
+            # Empty (2, 0)
+            idx = torch.empty(2, 0, dtype=torch.long)
         self.register_buffer('_pairs', idx)
 
     def run(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -54,7 +60,8 @@ class DemandParameterHead(nn.Module):
         if self.use_cross:
             u = self.head_cross(h).view(B, self.n_cross, K, K)
         else:
-            u = torch.zeros(B, self.n_cross, K, K, device=h.device, dtype=h.dtype)
+            # Empty tensor: downstream code can skip all cross computations.
+            u = torch.empty(B, 0, K, K, device=h.device, dtype=h.dtype)
 
         return {'b': b, 'beta': beta, 'w': w, 'u': u, 'pairs': self._pairs}
 

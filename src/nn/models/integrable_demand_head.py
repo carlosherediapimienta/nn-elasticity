@@ -69,6 +69,7 @@ class IntegrableDemandHead(nn.Module):
         dBx: torch.Tensor,
         ddBx: torch.Tensor,
         IBx: torch.Tensor,
+        return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
         h      = self.ctx(c)
@@ -85,8 +86,10 @@ class IntegrableDemandHead(nn.Module):
             IBx=IBx,
             u=params['u'],
             pairs=params['pairs'],
+            return_E=return_E,
         )
-        params['E'] = E
+        if return_E and (E is not None):
+            params['E'] = E
         return y_hat, eps_hat, params
 
     def forward(self, *args, **kwargs):
