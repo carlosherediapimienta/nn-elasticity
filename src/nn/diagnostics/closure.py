@@ -41,18 +41,21 @@ class ClosureDiagnostics:
         ).to(device)  # (B, n)
 
         def demand_fn(x1: torch.Tensor, c1: torch.Tensor) -> torch.Tensor:
-            """(n,), (d,) -> (n,)"""
             x_b = x1.unsqueeze(0)
             c_b = c1.unsqueeze(0)
-            Bx_list, dBx_list = [], []
+            Bx_list, dBx_list, ddBx_list, IBx_list = [], [], [], []
             for i, spline in enumerate(model.price_splines):
-                Bx_i, dBx_i, _ = spline(x_b[:, i])
+                Bx_i, dBx_i, ddBx_i, IBx_i = spline(x_b[:, i])   # 4 salidas
                 Bx_list.append(Bx_i)
                 dBx_list.append(dBx_i)
-            Bx  = torch.stack(Bx_list,  dim=1)
-            dBx = torch.stack(dBx_list, dim=1)
-            y_hat, _, _ = model.head.run(c_b, x_b, Bx, dBx)
-            return y_hat[0]  # (n,)
+                ddBx_list.append(ddBx_i)
+                IBx_list.append(IBx_i)
+            Bx   = torch.stack(Bx_list,   dim=1)
+            dBx  = torch.stack(dBx_list,  dim=1)
+            ddBx = torch.stack(ddBx_list, dim=1)
+            IBx  = torch.stack(IBx_list,  dim=1)
+            y_hat, _, _ = model.head.run(c_b, x_b, Bx, dBx, ddBx, IBx)  # 6 args
+            return y_hat[0]
 
         # D[b, i, j, k] = ∂_{x_k} ∂_{x_j} y_i
         D = vmap(jacrev(jacrev(demand_fn, argnums=0), argnums=0))(

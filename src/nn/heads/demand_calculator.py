@@ -2,14 +2,15 @@ import torch
 
 class DemandCalculator:
     """
-    Calculate predicted demand (log-space) using the extended potential model:
+    Computes predicted demand (log-space) from the scalar potential:
 
-      y_hat_i = b_i(c) + beta_i(c)*x_i + Σ_k w_{ik}(c)*B_k(x_i) + Σ_{j≠i} A_{ij}(c)*x_j
+      Φ(x,c) = Σ_i [b_i·x_i + beta_i/2·x_i² + Σ_k w_{ik}·Ψ_k(x_i)]
+             + Σ_{p=(i<j)} Σ_{k,l} u_{p,k,l} · Ψ_k(x_i) · B_l(x_j)
 
-    Derives from the scalar potential:
-      Φ(x,c) = Σ_i [b_i*x_i + beta_i/2*x_i² + Σ_k w_{ik}*∫B_k dx_i] + (1/2)*x^T A x
+    where Ψ_k(x) = ∫B_k(x)dx  (antiderivative of the spline basis, = IBx).
 
-    so y = ∂Φ/∂x, guaranteeing ∂y_i/∂x_j = ∂y_j/∂x_i by Schwarz's theorem.
+    Demand is y = ∂Φ/∂x, which guarantees ∂y_i/∂x_j = ∂y_j/∂x_i
+    (Slutsky symmetry) by Schwarz's theorem, with no explicit constraint on u.
 
     Public API: run().
     """
