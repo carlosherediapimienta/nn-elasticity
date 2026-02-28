@@ -54,38 +54,45 @@ class ElasticityLoss(nn.Module):
 
     def run(
         self,
-        y_hat: torch.Tensor,    # (B, n)
-        y_true: torch.Tensor,   # (B, n)
-        eps_hat: torch.Tensor,  # (B, n)
-        w: torch.Tensor,        # (B, n, K)
-        ddBx: torch.Tensor,     # (B, n, K)
-        u: torch.Tensor,        # (B, n_cross, K, K)
-        Bx: torch.Tensor,       # (B, n, K)
-        IBx: torch.Tensor,      # (B, n, K)
-        pairs: torch.Tensor,    # (2, n_cross)
+        y_hat: torch.Tensor,     # (B, n)
+        y_true: torch.Tensor,    # (B, n)
+        eps_hat: torch.Tensor,   # (B, n)
+        obs_mask: torch.Tensor,  # (B, n)  ← nuevo
+        w: torch.Tensor,         # (B, n, K)
+        ddBx: torch.Tensor,      # (B, n, K)
+        u: torch.Tensor,         # (B, n_cross, K, K)
+        Bx: torch.Tensor,        # (B, n, K)
+        IBx: torch.Tensor,       # (B, n, K)
+        pairs: torch.Tensor,     # (2, n_cross)
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
-        loss_fit = self.fit_loss.run(y_hat, y_true)
+        # 1. Fit loss — solo sobre demandas observadas
+        raw_fit = self.fit_loss.run(y_hat, y_true, reduction="none")  # (B, n)
+        denom   = obs_mask.sum().clamp(min=1.0)
+        loss_fit = (raw_fit * obs_mask).sum() / denom
 
+        # 2. Smoothness penalty
         if self.lambda_smooth > 0.0:
             loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, IBx, pairs)
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 
+        # 3. Positivity penalty — solo sobre productos observados
         if self.lambda_pos > 0.0:
-            loss_pos = self.positivity_penalty.run(eps_hat)
+            loss_pos = self.positivity_penalty.run(eps_hat, obs_mask)
         else:
             loss_pos = y_hat.new_tensor(0.0)
 
         loss = loss_fit + self.lambda_smooth * loss_smooth + self.lambda_pos * loss_pos
 
         logs = {
-            "loss":       loss.detach(),
-            "loss_fit":   loss_fit.detach(),
+            "loss":        loss.detach(),
+            "loss_fit":    loss_fit.detach(),
             "loss_smooth": loss_smooth.detach(),
-            "loss_pos":   loss_pos.detach(),
-            "eps_mean":   eps_hat.detach().mean(),
-            "eps_p50":    eps_hat.detach().median(),
+            "loss_pos":    loss_pos.detach(),
+            "eps_mean":    eps_hat.detach().mean(),
+            "eps_p50":     eps_hat.detach().median(),
+            "obs_frac":    obs_mask.mean().detach(),
         }
         return loss, logs
     

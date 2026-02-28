@@ -39,6 +39,7 @@ class IntegrableDemandHead(nn.Module):
         act="tanh",
         dropout=0.0,
         enforce_negative_beta: bool = False,
+        use_cross: bool = True,
         context_encoder: ContextMLP | None = None,
         parameter_head: DemandParameterHead | None = None,
         demand_calc: DemandCalculator | None = None,
@@ -55,6 +56,7 @@ class IntegrableDemandHead(nn.Module):
             K_splines=K_splines,
             n=n,
             enforce_negative_beta=enforce_negative_beta,
+            use_cross=use_cross,
         )
 
         self.demand_calc    = demand_calc    or DemandCalculator()

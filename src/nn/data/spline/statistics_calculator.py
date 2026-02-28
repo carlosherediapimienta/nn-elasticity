@@ -23,7 +23,7 @@ class StatisticsCalculator:
             dict with {"mean": float, "std": float}
         """
         mean = float(data.mean())
-        std = float(data.std() + eps)
+        std  = float(max(data.std(), 0.20) + eps)
         
         return {
             "mean": mean,
