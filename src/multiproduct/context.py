@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from src.nn.time_features import FourierTimeFeatures
 
+_ALL_REGRESSORS = frozenset({"lag_y", "rolling_mean_y", "lag_x", "delta_x", "week_gap"})
+
 
 class MultiProductContextEmbeddings(nn.Module):
     """
@@ -21,6 +23,7 @@ class MultiProductContextEmbeddings(nn.Module):
         include_trend: bool = True,
         week_min: float | None = None,
         week_max: float | None = None,
+        regressors: frozenset[str] | set[str] = _ALL_REGRESSORS,
     ):
         """
         Args:
@@ -31,6 +34,7 @@ class MultiProductContextEmbeddings(nn.Module):
             fourier_harmonics: number of Fourier harmonics
             include_trend:   include normalized trend scalar
             week_min/max:    range for trend normalization
+            regressors:      set of regressors to include (default: all)
         """
         super().__init__()
         self.n        = n
@@ -44,14 +48,18 @@ class MultiProductContextEmbeddings(nn.Module):
             include_trend=include_trend,
         )
 
+        self.regressors = frozenset(regressors)
+
     @property
     def out_dim(self) -> int:
-        """Total context dimension."""
+        _PER_PRODUCT = {"lag_y", "rolling_mean_y", "lag_x", "delta_x"}
+        n_lag = sum(self.n for r in _PER_PRODUCT if r in self.regressors)
+        n_gap = 1 if "week_gap" in self.regressors else 0
         return (
-            self.emb_store.embedding_dim +   # store embedding
-            self.time_features.out_dim   +   # Fourier + trend
-            4                            +   # on_promo, promo_B, promo_C, promo_S
-            4 * self.n + 1                   # per-product lags + week_gap_1
+            self.emb_store.embedding_dim +
+            self.time_features.out_dim   +
+            4                            +   # promo
+            n_lag + n_gap
         )
 
     def forward(self, batch: dict) -> torch.Tensor:
@@ -73,15 +81,23 @@ class MultiProductContextEmbeddings(nn.Module):
              batch["promo_C"], batch["promo_S"]], dim=1
         )
 
+        _REG_KEYS = {
+            "lag_y":          lambda i: f"lag_y_{i}_1",
+            "rolling_mean_y": lambda i: f"rolling_mean_y_{i}_4",
+            "lag_x":          lambda i: f"lag_x_{i}_1",
+            "delta_x":        lambda i: f"delta_x_{i}_1",
+        }
+
         lag_parts = []
         for i in range(self.n):
-            lag_parts += [
-                batch[f"lag_y_{i}_1"].unsqueeze(1),
-                batch[f"rolling_mean_y_{i}_4"].unsqueeze(1),
-                batch[f"lag_x_{i}_1"].unsqueeze(1),
-                batch[f"delta_x_{i}_1"].unsqueeze(1),
-            ]
-        lag_parts.append(batch["week_gap_1"].unsqueeze(1))
-        lags = torch.cat(lag_parts, dim=1)
+            for name, key_fn in _REG_KEYS.items():
+                if name in self.regressors:
+                    lag_parts.append(batch[key_fn(i)].unsqueeze(1))
 
-        return torch.cat([e_s, ft, promo, lags], dim=1)
+        if "week_gap" in self.regressors:
+            lag_parts.append(batch["week_gap_1"].unsqueeze(1))
+
+        parts = [e_s, ft, promo]
+        if lag_parts:
+            parts.append(torch.cat(lag_parts, dim=1))
+        return torch.cat(parts, dim=1)
