@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from src.nn.time_features import FourierTimeFeatures
 
-_ALL_REGRESSORS = frozenset({"lag_y", "rolling_mean_y", "lag_x", "delta_x", "week_gap"})
+_ALL_REGRESSORS = frozenset({"lag_y", "lag_y_52", "rolling_mean_y", "week_gap"})
 
 
 class MultiProductContextEmbeddings(nn.Module):
@@ -52,7 +52,7 @@ class MultiProductContextEmbeddings(nn.Module):
 
     @property
     def out_dim(self) -> int:
-        _PER_PRODUCT = {"lag_y", "rolling_mean_y", "lag_x", "delta_x"}
+        _PER_PRODUCT = {"lag_y", "lag_y_52", "rolling_mean_y"}
         n_lag = sum(self.n for r in _PER_PRODUCT if r in self.regressors)
         n_gap = 1 if "week_gap" in self.regressors else 0
         return (
@@ -83,9 +83,8 @@ class MultiProductContextEmbeddings(nn.Module):
 
         _REG_KEYS = {
             "lag_y":          lambda i: f"lag_y_{i}_1",
+            "lag_y_52":       lambda i: f"lag_y_{i}_52",
             "rolling_mean_y": lambda i: f"rolling_mean_y_{i}_4",
-            "lag_x":          lambda i: f"lag_x_{i}_1",
-            "delta_x":        lambda i: f"delta_x_{i}_1",
         }
 
         lag_parts = []
