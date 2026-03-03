@@ -35,12 +35,13 @@ class FourierTimeFeatures(nn.Module):
             feats.append(torch.cos(angle))
 
         if self.include_trend:
-            if (week_min is not None) and (week_max is not None) and (week_max > week_min):
-                # Scale to [-1, 1]
-                trend = 2.0 * (t - week_min) / (week_max - week_min) - 1.0
-            else:
-                # Fallback: mild scaling to keep magnitude reasonable
-                trend = (t - t.mean()) / (t.std(unbiased=False) + 1e-6)
+            if (week_min is None) or (week_max is None) or (week_max <= week_min):
+                raise ValueError(
+                    "FourierTimeFeatures(include_trend=True) requiere week_min/week_max "
+                    "válidos para definir el trend de forma determinista."
+                )
+            # Trend determinista con min/max globales
+            trend = 2.0 * (t - week_min) / (week_max - week_min) - 1.0
             feats.append(trend)
 
         return torch.cat(feats, dim=1)  # (B, out_dim)

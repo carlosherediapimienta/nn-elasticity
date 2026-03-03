@@ -28,14 +28,10 @@ class MultiProductLagBuilder:
         for i in range(self.n):
             y = g[f"log_liters_{i}"]
             new_cols[f"lag_y_{i}_1"] = y.shift(1).fillna(self.fill_y[i])
+            new_cols[f"lag_y_{i}_52"] = y.shift(52).fillna(self.fill_y[i])
             new_cols[f"rolling_mean_y_{i}_4"] = y.transform(
                 lambda s: s.shift(1).rolling(4, min_periods=1).mean()
             ).fillna(self.fill_y[i])
-
-            x = g[f"log_price_{i}"]
-            lag_x = x.shift(1).fillna(self.fill_x[i])
-            new_cols[f"lag_x_{i}_1"]   = lag_x
-            new_cols[f"delta_x_{i}_1"] = df[f"log_price_{i}"] - lag_x
 
         new_cols["week_gap_1"] = g["week_id"].transform(
             lambda s: s.diff().fillna(0.0)

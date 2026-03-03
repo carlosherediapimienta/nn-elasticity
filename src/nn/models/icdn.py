@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-from ..spline import CubicSplineBasis
-from .integrable_demand_head import IntegrableDemandHead
+from ..spline import MultiCubicSplineBasis
 
 
 class ICDN(nn.Module):
@@ -19,7 +18,7 @@ class ICDN(nn.Module):
       y_hat, eps_hat = head(c, log_price, Bx, dBx)    
     """
     
-    def __init__(self, context_builder, price_splines: nn.ModuleList, head, n: int):
+    def __init__(self, context_builder, price_splines: nn.Module, head, n: int):
         """
         Args:
             context_builder: module that generates context vector
@@ -34,24 +33,32 @@ class ICDN(nn.Module):
         self.n = n
 
 
-    def run(self, batch, return_parts=False):
+    def run(self, batch, return_parts: bool = False, compute_E: bool = False):
         c = self.context_builder(batch)
         x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
 
-        Bx_list, dBx_list, ddBx_list, IBx_list = [], [], [], []
-        for i, spline in enumerate(self.price_splines):
-            Bx_i, dBx_i, ddBx_i, IBx_i = spline(x[:, i])   # ← ahora 4 salidas
-            Bx_list.append(Bx_i)
-            dBx_list.append(dBx_i)
-            ddBx_list.append(ddBx_i)
-            IBx_list.append(IBx_i)
+        if isinstance(self.price_splines, MultiCubicSplineBasis):
+            # Vectorized spline evaluation (recommended for n >> 2)
+            Bx, dBx, ddBx, IBx = self.price_splines(x)
+        else:
+            # Legacy per-product loop
+            Bx_list, dBx_list, ddBx_list, IBx_list = [], [], [], []
+            for i, spline in enumerate(self.price_splines):
+                Bx_i, dBx_i, ddBx_i, IBx_i = spline(x[:, i])
+                Bx_list.append(Bx_i)
+                dBx_list.append(dBx_i)
+                ddBx_list.append(ddBx_i)
+                IBx_list.append(IBx_i)
 
-        Bx   = torch.stack(Bx_list,   dim=1)
-        dBx  = torch.stack(dBx_list,  dim=1)
-        ddBx = torch.stack(ddBx_list, dim=1)
-        IBx  = torch.stack(IBx_list,  dim=1)   # ← nuevo (B, n, K)
+            Bx   = torch.stack(Bx_list,   dim=1)
+            dBx  = torch.stack(dBx_list,  dim=1)
+            ddBx = torch.stack(ddBx_list, dim=1)
+            IBx  = torch.stack(IBx_list,  dim=1)
 
-        y_hat, eps_hat, aux = self.head.run(c, x, Bx, dBx, ddBx, IBx)
+        y_hat, eps_hat, aux = self.head.run(
+            c, x, Bx, dBx, ddBx, IBx,
+            return_E=compute_E,
+        )
 
         if return_parts:
             aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx, "IBx": IBx})

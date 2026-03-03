@@ -28,9 +28,8 @@ class MultiProductDataset(Dataset):
             t[f"log_liters_{i}"]       = torch.tensor(df[f"log_liters_{i}"].values,       dtype=torch.float32)
             t[f"obs_mask_{i}"]         = torch.tensor(df[f"obs_mask_{i}"].values,         dtype=torch.float32)
             t[f"lag_y_{i}_1"]          = torch.tensor(df[f"lag_y_{i}_1"].values,          dtype=torch.float32)
+            t[f"lag_y_{i}_52"]         = torch.tensor(df[f"lag_y_{i}_52"].values,         dtype=torch.float32)
             t[f"rolling_mean_y_{i}_4"] = torch.tensor(df[f"rolling_mean_y_{i}_4"].values, dtype=torch.float32)
-            t[f"lag_x_{i}_1"]          = torch.tensor(df[f"lag_x_{i}_1"].values,          dtype=torch.float32)
-            t[f"delta_x_{i}_1"]        = torch.tensor(df[f"delta_x_{i}_1"].values,        dtype=torch.float32)
 
         t["week_gap_1"] = torch.tensor(df["week_gap_1"].values, dtype=torch.float32)
 

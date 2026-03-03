@@ -27,19 +27,31 @@ class DemandCalculator:
         IBx: torch.Tensor,     # (B, n, K)
         u: torch.Tensor,       # (B, n_cross, K, K)
         pairs: torch.Tensor,   # (2, n_cross)
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_E: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """
         Returns:
             y_hat:   (B, n)    predicted demand
             eps_hat: (B, n)    own-price elasticity (diagonal of E)
-            E:       (B, n, n) full elasticity matrix ∂y_i/∂x_j
+            E:       (B, n, n) full elasticity matrix ∂y_i/∂x_j (or None if return_E=False)
         """
         B, n, K = Bx.shape
-        i_idx, j_idx = pairs[0], pairs[1]   # (n_cross,)
 
         # ── Own-price terms ──────────────────────────────────────────────────
         y_hat   = b + beta * x + (w * Bx).sum(dim=-1)   # (B, n)
-        eps_hat = beta + (w * dBx).sum(dim=-1)           # (B, n)
+        eps_hat = beta + (w * dBx).sum(dim=-1)          # (B, n)
+
+        # Fast path: no cross terms
+        has_cross = (u is not None) and (pairs is not None) and (pairs.numel() > 0) and (u.numel() > 0)
+        if not has_cross:
+            if return_E:
+                E = torch.zeros(B, n, n, device=Bx.device, dtype=Bx.dtype)
+                E[:, torch.arange(n), torch.arange(n)] = eps_hat
+            else:
+                E = None
+            return y_hat, eps_hat, E
+
+        i_idx, j_idx = pairs[0], pairs[1]   # (n_cross,)
 
         # ── Cross-product spline terms ────────────────────────────────────────
         Bx_i   = Bx[:,  i_idx, :]   # (B, n_cross, K)
@@ -70,14 +82,17 @@ class DemandCalculator:
         eps_hat = eps_hat.scatter_add(1, j_exp, contrib_ej)
 
         # ── Elasticity matrix E[b, i, j] = ∂y_i/∂x_j ────────────────────────
-        E = torch.zeros(B, n, n, device=Bx.device, dtype=Bx.dtype)
+        if return_E:
+            E = torch.zeros(B, n, n, device=Bx.device, dtype=Bx.dtype)
 
-        # Diagonal: own-price
-        E[:, torch.arange(n), torch.arange(n)] = eps_hat
+            # Diagonal: own-price
+            E[:, torch.arange(n), torch.arange(n)] = eps_hat
 
-        # Off-diagonal: cross-price  E_{ij} = Σ_{k,l} u_{p,k,l} * B_k(x_i) * B'_l(x_j)
-        E_cross = torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)   # (B, n_cross)
-        E[:, i_idx, j_idx] = E_cross.to(E.dtype)   # cast float16 → float32
-        E[:, j_idx, i_idx] = E_cross.to(E.dtype)
+            # Off-diagonal: cross-price  E_{ij} = Σ_{k,l} u_{p,k,l} * B_k(x_i) * B'_l(x_j)
+            E_cross = torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)   # (B, n_cross)
+            E[:, i_idx, j_idx] = E_cross.to(E.dtype)
+            E[:, j_idx, i_idx] = E_cross.to(E.dtype)
+        else:
+            E = None
 
         return y_hat, eps_hat, E
