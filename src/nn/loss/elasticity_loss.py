@@ -66,10 +66,12 @@ class ElasticityLoss(nn.Module):
         pairs: torch.Tensor,     # (2, n_cross)
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
-        # 1. Fit loss — solo sobre demandas observadas
-        raw_fit = self.fit_loss.run(y_hat, y_true, reduction="none")  # (B, n)
-        denom   = obs_mask.sum().clamp(min=1.0)
-        loss_fit = (raw_fit * obs_mask).sum() / denom
+        # 1. Fit loss - only on observed demands
+        mask = obs_mask.bool()
+        if mask.any():
+            loss_fit = self.fit_loss.run(y_hat[mask], y_true[mask], reduction="mean")
+        else:
+            loss_fit = y_hat.new_tensor(0.0)
 
         # 2. Smoothness penalty
         if self.lambda_smooth > 0.0:
@@ -77,7 +79,7 @@ class ElasticityLoss(nn.Module):
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 
-        # 3. Positivity penalty — solo sobre productos observados
+        # 3. Positivity penalty - only on observed products
         if self.lambda_pos > 0.0:
             loss_pos = self.positivity_penalty.run(eps_hat, obs_mask)
         else:
