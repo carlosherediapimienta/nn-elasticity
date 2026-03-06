@@ -75,17 +75,29 @@ class TemporalFeatureBuilder:
 
         # ----- Lags y rolling (dentro de store×upc, ordenado por semana) -----
         if demand_col in out.columns:
-            out = out.sort_values([store_col, upc_col, week_col]).reset_index(drop=True)
-            g = out.groupby([store_col, upc_col])[demand_col]
-            for k in lag_weeks:
-                out[f"lag_{k}_{demand_col}"] = g.shift(k)
-            for w in rolling_windows:
-                out[f"rolling_mean_{w}_{demand_col}"] = g.transform(
-                    lambda x: x.rolling(w, min_periods=1).mean()
-                )
-                out[f"rolling_median_{w}_{demand_col}"] = g.transform(
-                    lambda x: x.rolling(w, min_periods=1).median()
-                )
+                out = out.sort_values([store_col, upc_col, week_col]).reset_index(drop=True)
+                g = out.groupby([store_col, upc_col])[demand_col]
+                for k in lag_weeks:
+                    col_lag = f"lag_{k}_{demand_col}"
+                    out[col_lag] = g.shift(k)
+                    out[f"miss_lag_{k}"] = (out[col_lag].isna() | ~np.isfinite(out[col_lag])).astype(int)
+                    out[col_lag] = out[col_lag].fillna(0.0)
+                # Rolling estrictamente histórico: media/mediana de las w semanas ANTERIORES (sin incluir t)
+                for w in rolling_windows:
+                    col_rm = f"rolling_mean_{w}_{demand_col}"
+                    col_rmed = f"rolling_median_{w}_{demand_col}"
+                    out[col_rm] = g.transform(
+                        lambda x: x.shift(1).rolling(w, min_periods=1).mean()
+                    )
+                    out[col_rmed] = g.transform(
+                        lambda x: x.shift(1).rolling(w, min_periods=1).median()
+                    )
+                    out[f"miss_roll_{w}"] = (
+                        (out[col_rm].isna() | ~np.isfinite(out[col_rm]))
+                        | (out[col_rmed].isna() | ~np.isfinite(out[col_rmed]))
+                    ).astype(int)
+                    out[col_rm] = out[col_rm].fillna(0.0)
+                    out[col_rmed] = out[col_rmed].fillna(0.0)
 
         # ----- Intensidad promo por store-week (share de UPCs en promo) -----
         if include_promo_intensity and promo_col in out.columns:
