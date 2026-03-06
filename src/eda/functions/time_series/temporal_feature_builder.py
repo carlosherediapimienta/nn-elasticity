@@ -1,0 +1,100 @@
+import pandas as pd
+import numpy as np
+from typing import Optional
+
+
+class TemporalFeatureBuilder:
+    """
+    Añade features temporales orientadas a elasticidad:
+    week_rank, estacionalidad sin/cos, weeks_since_first_seen, lags/rolling de demanda,
+    promo_intensity por store-week.
+    Public API: run().
+    """
+
+    def run(
+        self,
+        df: pd.DataFrame,
+        week_col: str = "week_id",
+        store_col: str = "store_code",
+        upc_col: str = "upc_code",
+        demand_col: str = "log_liters_sold",
+        promo_col: str = "on_promo",
+        season_periods: Optional[list[int]] = None,
+        lag_weeks: Optional[list[int]] = None,
+        rolling_windows: Optional[list[int]] = None,
+        include_lifecycle_upc: bool = True,
+        include_lifecycle_store_upc: bool = True,
+        include_promo_intensity: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Args:
+            df: DataFrame con grano (store, upc, week). Debe estar ordenado o se ordena internamente.
+            week_col: columna de semana (id numérico).
+            store_col, upc_col: columnas de tienda y producto.
+            demand_col: columna de demanda (para lags y rolling).
+            promo_col: columna 0/1 de promo (para promo_intensity store-week).
+            season_periods: períodos para sin/cos (default [52]; opcional [52, 26, 13]).
+            lag_weeks: lags de demanda (default [1, 2, 4]).
+            rolling_windows: ventanas para media/mediana (default [4, 8, 13]).
+            include_lifecycle_upc: añadir weeks_since_first_seen por UPC.
+            include_lifecycle_store_upc: añadir weeks_since_first_seen por store×UPC.
+            include_promo_intensity: añadir share de UPCs en promo por store-week.
+
+        Returns:
+            DataFrame original con columnas añadidas (no modifica el original).
+        """
+        if season_periods is None:
+            season_periods = [52]
+        if lag_weeks is None:
+            lag_weeks = [1, 2, 4]
+        if rolling_windows is None:
+            rolling_windows = [4, 8, 13]
+
+        out = df.copy()
+        for c in [week_col, store_col, upc_col]:
+            if c not in out.columns:
+                raise ValueError(f"Columna '{c}' no encontrada.")
+
+        # ----- week_rank (índice secuencial sin huecos) -----
+        unique_weeks = np.sort(out[week_col].dropna().unique())
+        week_to_rank = {w: i + 1 for i, w in enumerate(unique_weeks)}
+        out["week_rank"] = out[week_col].map(week_to_rank)
+
+        # ----- Estacionalidad sin/cos -----
+        for p in season_periods:
+            out[f"sin_{p}"] = np.sin(2 * np.pi * out["week_rank"] / p)
+            out[f"cos_{p}"] = np.cos(2 * np.pi * out["week_rank"] / p)
+
+        # ----- Lifecycle: weeks_since_first_seen -----
+        if include_lifecycle_upc:
+            first_rank_upc = out.groupby(upc_col)["week_rank"].transform("min")
+            out["weeks_since_first_seen_upc"] = (out["week_rank"] - first_rank_upc).astype(int)
+        if include_lifecycle_store_upc:
+            first_rank_su = out.groupby([store_col, upc_col])["week_rank"].transform("min")
+            out["weeks_since_first_seen_store_upc"] = (out["week_rank"] - first_rank_su).astype(int)
+
+        # ----- Lags y rolling (dentro de store×upc, ordenado por semana) -----
+        if demand_col in out.columns:
+            out = out.sort_values([store_col, upc_col, week_col]).reset_index(drop=True)
+            g = out.groupby([store_col, upc_col])[demand_col]
+            for k in lag_weeks:
+                out[f"lag_{k}_{demand_col}"] = g.shift(k)
+            for w in rolling_windows:
+                out[f"rolling_mean_{w}_{demand_col}"] = g.transform(
+                    lambda x: x.rolling(w, min_periods=1).mean()
+                )
+                out[f"rolling_median_{w}_{demand_col}"] = g.transform(
+                    lambda x: x.rolling(w, min_periods=1).median()
+                )
+
+        # ----- Intensidad promo por store-week (share de UPCs en promo) -----
+        if include_promo_intensity and promo_col in out.columns:
+            store_week_promo = (
+                out.groupby([store_col, week_col])[promo_col]
+                .mean()
+                .reset_index()
+                .rename(columns={promo_col: "promo_intensity_store_week"})
+            )
+            out = out.merge(store_week_promo, on=[store_col, week_col], how="left")
+
+        return out

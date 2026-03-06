@@ -1,152 +1,110 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Optional
+from typing import Optional, Union
 
 from .functions.missing_data import NanAnalyzer
-from .functions.correlation import (
-    CorrelationAnalyzer,
-    GlobalCorrelationAnalyzer,
-    CorrelationHistogramPlotter,
-    ScatterRegressionPlotter,
-)
-from .functions.distribution import (
-    DistributionAnalyzer,
-    DistributionPlotter,
-)
-from .functions.outliers import (
-    OutlierAnalyzer,
-    BoxPlotter,
-)
+from .functions.outliers import OutlierAnalyzer
 from .functions.time_series import (
-    TimeSeriesAggregator,
-    TrendAnalyzer,
     AutocorrelationAnalyzer,
-    SeasonalityDetector,
-    TimeSeriesPlotter,
-    AutocorrelationPlotter,
+    AggregatedTrendAnalyzer,
+    TemporalFeatureBuilder,
+)
+from .functions.grain import (
+    GrainUniquenessAnalyzer,
+    DatasetCoverageAnalyzer,
+    CalendarGapImputer,
+    PanelBalanceAnalyzer,
+    StoreWeekCoverageAnalyzer,
+    StoreWeekWidthAnalyzer,
+    StoreUpcCoverageAnalyzer,
+)
+from .functions.price_variation import (
+    PriceVariationAnalyzer,
+    PromoPriceCollinearityAnalyzer,
+    LogPriceLogDemandAnalyzer,
+    BaselineElasticityOLSAnalyzer,
 )
 
 
 class EDA:
     """
-    Orchestrator of EDA analysis. Coordinates NanAnalyzer, CorrelationAnalyzer
-    and CorrelationHistogramPlotter, DistributionAnalyzer, OutlierAnalyzer,
-    GlobalCorrelationAnalyzer, ScatterRegressionPlotter, TimeSeriesAggregator,
-    TrendAnalyzer, AutocorrelationAnalyzer, SeasonalityDetector, TimeSeriesPlotter,
-    AutocorrelationPlotter using only their public API (run).
+    Orchestrator of EDA analysis. Coordinates NanAnalyzer, AggregatedTrendAnalyzer, TemporalFeatureBuilder using only their public API (run).
     Public API of this class: run().
     """
 
     def __init__(self):
         self.nan_analyzer = NanAnalyzer()
-        self.correlation_analyzer = CorrelationAnalyzer()
-        self.histogram_plotter = CorrelationHistogramPlotter()
-        self.distribution_analyzer = DistributionAnalyzer()
+
+        self.aggregated_trend_analyzer = AggregatedTrendAnalyzer()
+        self.temporal_feature_builder = TemporalFeatureBuilder()
+
+        self.grain_uniqueness_analyzer = GrainUniquenessAnalyzer()
+        self.dataset_coverage_analyzer = DatasetCoverageAnalyzer()
+        self.calendar_gap_imputer = CalendarGapImputer()
+        self.panel_balance_analyzer = PanelBalanceAnalyzer()
+        self.store_week_coverage_analyzer = StoreWeekCoverageAnalyzer()
+        self.store_week_width_analyzer = StoreWeekWidthAnalyzer()
+        self.store_upc_coverage_analyzer = StoreUpcCoverageAnalyzer()
+        self.price_variation_analyzer = PriceVariationAnalyzer()
+        self.promo_price_collinearity_analyzer = PromoPriceCollinearityAnalyzer()
+        self.log_price_log_demand_analyzer = LogPriceLogDemandAnalyzer()
+        self.baseline_elasticity_ols_analyzer = BaselineElasticityOLSAnalyzer()
         self.outlier_analyzer = OutlierAnalyzer()
-        self.distribution_plotter = DistributionPlotter()
-        self.box_plotter = BoxPlotter()
-        self.global_correlation_analyzer = GlobalCorrelationAnalyzer()
-        self.scatter_regression_plotter = ScatterRegressionPlotter()
-
-        self.time_series_aggregator = TimeSeriesAggregator()
-        self.trend_analyzer = TrendAnalyzer()
         self.autocorrelation_analyzer = AutocorrelationAnalyzer()
-        self.seasonality_detector = SeasonalityDetector()
 
-        self.time_series_plotter = TimeSeriesPlotter()
-        self.autocorrelation_plotter = AutocorrelationPlotter()
-
+### ---------------------- Data Quality ----------------------
     def analyze_nans(self, df: pd.DataFrame, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return self.nan_analyzer.run(df, columns=columns)
-    
-    def analyze_correlations(self, df: pd.DataFrame, x_col: str, y_col: str, group_col: str = "store_code", min_obs: int = 30) -> pd.DataFrame:
-        return self.correlation_analyzer.run(df, x_col, y_col, group_col=group_col, min_obs=min_obs)
-    
-    def plot_correlations(self, corr_df: pd.DataFrame, title: str = "Spearman correlation by store", xlabel: str = "Spearman correlation", ylabel: str = "Number of stores", bins: int = 25, figsize: tuple[int, int] = (8, 5), ax: Optional[plt.Axes] = None) -> plt.Axes:
-        return self.histogram_plotter.run(corr_df, title=title, xlabel=xlabel, ylabel=ylabel, bins=bins, figsize=figsize, ax=ax)
-    
-    def analyze_distributions(self, df: pd.DataFrame, columns: list[str]) -> dict:
-        return self.distribution_analyzer.run(df, columns)
-    
-    def analyze_outliers(self, df: pd.DataFrame, columns: list[str], method: str = 'std', n_std: float = 3.0) -> pd.DataFrame:
-        return self.outlier_analyzer.run(df, columns, method=method, n_std=n_std)
-    
-    def plot_distributions(self, df: pd.DataFrame, columns: list[str], bins: int = 50, figsize: tuple[int, int] = (14, 5), stats_dict: dict = None) -> plt.Figure:
-        return self.distribution_plotter.run(df, columns, bins=bins, figsize=figsize, stats_dict=stats_dict)
-    
-    def plot_boxplots(self, df: pd.DataFrame, columns: list[str], figsize: tuple[int, int] = (12, 5)) -> plt.Figure:
-        return self.box_plotter.run(df, columns, figsize=figsize)
 
-    def analyze_global_correlation(self, df: pd.DataFrame, x_col: str, y_col: str) -> dict:
-        return self.global_correlation_analyzer.run(df, x_col, y_col)
+    def analyze_grain_uniqueness(self, df: pd.DataFrame, grain_cols: Optional[list[str]] = None) -> pd.DataFrame:
+        if grain_cols is None:
+            grain_cols = ["store_code", "week_id", "upc_code"]
+        return self.grain_uniqueness_analyzer.run(df, grain_cols)
 
-    def plot_scatter_regression(
-        self, 
-        df: pd.DataFrame, 
-        x_col: str, 
-        y_col: str, 
-        sample_size: Optional[int] = None,
-        figsize: tuple[int, int] = (10, 7),
-        stats_dict: dict = None,
-        alpha: float = 0.3
-    ) -> plt.Figure:
-        return self.scatter_regression_plotter.run(
-            df, x_col, y_col, 
-            sample_size=sample_size, 
-            figsize=figsize, 
-            stats_dict=stats_dict, 
-            alpha=alpha
-        )
+    def analyze_dataset_coverage(self, df: pd.DataFrame, store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id", expected_weeks: Optional[list[int]] = None) -> dict:
+        return self.dataset_coverage_analyzer.run(df, store_col, upc_col, week_col, expected_weeks)
 
-    def aggregate_time_series(
-        self, 
-        df: pd.DataFrame, 
-        time_col: str, 
-        value_cols: list[str],
-        agg_func: str = 'mean'
-    ) -> pd.DataFrame:
-        return self.time_series_aggregator.run(df, time_col, value_cols, agg_func)
+    def impute_calendar_gaps(self, df: pd.DataFrame, store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id", value_cols: Optional[list[str]] = None, global_gap_weeks: Optional[list[int]] = None) -> pd.DataFrame:
+        return self.calendar_gap_imputer.run(df, store_col, upc_col, week_col, value_cols, global_gap_weeks)
+
+    def analyze_panel_balance(self, df: pd.DataFrame, store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id") -> dict:
+        return self.panel_balance_analyzer.run(df, store_col, upc_col, week_col)
+
+    def analyze_store_week_coverage(self, df: pd.DataFrame, store_col: str = "store_code", week_col: str = "week_id", min_weeks_for_good: int = 150) -> dict:
+        return self.store_week_coverage_analyzer.run(df, store_col, week_col, min_weeks_for_good)
+
+    def analyze_store_week_width(
+        self, df: pd.DataFrame, store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id") -> dict:
+        return self.store_week_width_analyzer.run(df, store_col, upc_col, week_col)
+
+    def analyze_store_upc_coverage(
+        self, df: pd.DataFrame, store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id") -> dict:
+        return self.store_upc_coverage_analyzer.run(df, store_col, upc_col, week_col)
+
+### ---------------------- Price Variation ----------------------
+    def analyze_price_variation(self, df: pd.DataFrame, price_col: str = "log_price_per_liter", store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id", price_round_decimals: int = 3) -> dict:
+        return self.price_variation_analyzer.run(df, price_col, store_col, upc_col, week_col, price_round_decimals)
     
-    def analyze_trend(
-        self, 
-        time_series_df: pd.DataFrame, 
-        time_col: str, 
-        value_col: str
-    ) -> dict:
-        return self.trend_analyzer.run(time_series_df, time_col, value_col)
-    
-    def analyze_autocorrelation(
-        self, 
-        time_series_df: pd.DataFrame, 
-        value_col: str,
-        max_lags: int = 20
-    ) -> dict:
-        return self.autocorrelation_analyzer.run(time_series_df, value_col, max_lags)
-    
-    def detect_seasonality(
-        self, 
-        time_series_df: pd.DataFrame, 
-        value_col: str,
-        period: int = 52
-    ) -> dict:
-        return self.seasonality_detector.run(time_series_df, value_col, period)
-    
-    def plot_time_series(
-        self, 
-        time_series_df: pd.DataFrame, 
-        time_col: str, 
-        value_cols: list[str],
-        trend_stats: Optional[dict] = None,
-        figsize: tuple[int, int] = (14, 6)
-    ) -> plt.Figure:
-        return self.time_series_plotter.run(
-            time_series_df, time_col, value_cols, trend_stats, figsize
-        )
-    
-    def plot_autocorrelation(
-        self, 
-        acf_dict: dict,
-        title: str = "Autocorrelation (ACF)",
-        figsize: tuple[int, int] = (10, 5)
-    ) -> plt.Figure:
-        return self.autocorrelation_plotter.run(acf_dict, title, figsize)
+    def analyze_promo_price_collinearity(self, df: pd.DataFrame, price_col: str = "log_price_per_liter", store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id", on_promo_col: str = "on_promo", promo_b_col: str = "promo_B", promo_s_col: str = "promo_S", promo_c_col: str = "promo_C", price_change_tol: float = 1e-6) -> dict:
+        return self.promo_price_collinearity_analyzer.run(df, price_col, store_col, upc_col, week_col, on_promo_col, promo_b_col, promo_s_col, promo_c_col, price_change_tol)
+
+    def analyze_log_price_log_demand(self, df: pd.DataFrame, price_col: str = "log_price_per_liter", demand_col: str = "log_liters_sold", store_col: str = "store_code", upc_col: str = "upc_code", promo_col: str = "on_promo") -> dict:
+        return self.log_price_log_demand_analyzer.run(df, price_col, demand_col, store_col, upc_col, promo_col)
+
+    def analyze_baseline_elasticity_ols(self, df: pd.DataFrame, price_col: str = "log_price_per_liter", demand_col: str = "log_liters_sold", store_col: str = "store_code", upc_col: str = "upc_code", week_col: str = "week_id") -> dict:
+        return self.baseline_elasticity_ols_analyzer.run(df, price_col, demand_col, store_col, upc_col, week_col)
+
+### --- Outliers Analysis ---
+    def analyze_outliers(self, df: pd.DataFrame, columns: list[str], method: str = "std", n_std: float = 3.0, group_col: Optional[Union[str, list[str]]] = None, return_flagged_df: bool = False) -> Union[pd.DataFrame, dict]:
+        return self.outlier_analyzer.run(df, columns, method=method, n_std=n_std, group_col=group_col, return_flagged_df=return_flagged_df)
+
+### ---------------------- Time Series Analysis ----------------------
+    def analyze_aggregated_trends(self, df: pd.DataFrame, time_col: str = "week_id", price_col: str = "log_price_per_liter", demand_raw_col: str = "liters_sold", promo_col: str = "on_promo") -> dict:
+        return self.aggregated_trend_analyzer.run(df, time_col=time_col, price_col=price_col, demand_raw_col=demand_raw_col, promo_col=promo_col)
+
+    def build_temporal_features(
+        self, df: pd.DataFrame, week_col: str = "week_id", store_col: str = "store_code", upc_col: str = "upc_code", demand_col: str = "log_liters_sold", promo_col: str = "on_promo", season_periods: Optional[list[int]] = None, lag_weeks: Optional[list[int]] = None, rolling_windows: Optional[list[int]] = None, include_lifecycle_upc: bool = True, include_lifecycle_store_upc: bool = True, include_promo_intensity: bool = True) -> pd.DataFrame:
+        return self.temporal_feature_builder.run(df, week_col, store_col, upc_col, demand_col, promo_col, season_periods, lag_weeks, rolling_windows, include_lifecycle_upc, include_lifecycle_store_upc, include_promo_intensity)
+
+    def analyze_autocorrelation(self, df: pd.DataFrame, value_col: str = "log_liters_sold", max_lags: int = 20) -> dict:
+        return self.autocorrelation_analyzer.run(df, value_col, max_lags)

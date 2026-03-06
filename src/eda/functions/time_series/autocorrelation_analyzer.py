@@ -9,45 +9,34 @@ class AutocorrelationAnalyzer:
     Single responsibility: measure temporal dependence.
     Public API: run().
     """
-    
-    def run(
-        self,
-        time_series_df: pd.DataFrame,
-        value_col: str,
-        max_lags: int = 20
-    ) -> dict:
-        """
-        Public API. Computes autocorrelation function (ACF).
-        
-        Args:
-            time_series_df: DataFrame with time series (must be sorted by time)
-            value_col: column name for values
-            max_lags: maximum number of lags to compute
-            
-        Returns:
-            dict with: acf_values (array), lags (array), significant_lags (list)
-        """
-        
-        values = time_series_df[value_col].values
+    def run(self, time_series_df, value_col, max_lags=20):
+        series = time_series_df[value_col].dropna()
+
+        if len(series) == 0:
+            raise ValueError(f"La columna '{value_col}' no tiene valores no-NaN.")
+
+        n_original = len(time_series_df[value_col])
+        n_clean = len(series)
+        n_dropped = n_original - n_clean
+
+        values = series.values
         n = len(values)
-        
-        # Compute ACF
-        acf_values = acf(values, nlags=min(max_lags, n-1), fft=False)
+
+        acf_values = acf(values, nlags=min(max_lags, n - 1), fft=False)
         lags = np.arange(len(acf_values))
-        
-        # Confidence interval (95%): ±1.96/sqrt(n)
+
         confidence_bound = 1.96 / np.sqrt(n)
-        
-        # Find significant lags (excluding lag 0 which is always 1)
         significant_lags = [
-            int(lag) for lag in lags[1:] 
+            int(lag) for lag in lags[1:]
             if abs(acf_values[lag]) > confidence_bound
         ]
-        
+
         return {
-            'acf_values': acf_values,
-            'lags': lags,
-            'confidence_bound': float(confidence_bound),
-            'significant_lags': significant_lags,
-            'has_autocorrelation': len(significant_lags) > 0
+            "acf_values": acf_values,
+            "lags": lags,
+            "confidence_bound": float(confidence_bound),
+            "significant_lags": significant_lags,
+            "has_autocorrelation": len(significant_lags) > 0,
+            "n_obs_used": n_clean,
+            "n_obs_dropped_nan": n_dropped,
         }

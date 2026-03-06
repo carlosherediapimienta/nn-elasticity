@@ -1,15 +1,9 @@
-from .time_aggregator import TimeSeriesAggregator
-from .trend_analyzer import TrendAnalyzer
+from .aggregated_trend_analyzer import AggregatedTrendAnalyzer
+from .temporal_feature_builder import TemporalFeatureBuilder
 from .autocorrelation_analyzer import AutocorrelationAnalyzer
-from .seasonality_detector import SeasonalityDetector
-from .time_series_plotter import TimeSeriesPlotter
-from .autocorrelation_plotter import AutocorrelationPlotter
 
 __all__ = [
-    "TimeSeriesAggregator",
-    "TrendAnalyzer",
+    "AggregatedTrendAnalyzer",
+    "TemporalFeatureBuilder",
     "AutocorrelationAnalyzer",
-    "SeasonalityDetector",
-    "TimeSeriesPlotter",
-    "AutocorrelationPlotter",
 ]
