@@ -1,7 +1,6 @@
 import pandas as pd
 from .multiproduct import (
-    UPCSelector,
-    StoreSelector,
+    PanelSelector,
     CompleteObservationFilter,
     MultiProductPivoter,
 )
@@ -10,29 +9,33 @@ from .multiproduct import (
 class MultiProductBuilder:
     """
     Orchestrates the transformation from long format to multi-product wide format.
-    Lags and rolling features are precomputed in the source dataset.
-    Public API: fit(train_df, n), transform(df)
+    Public API: fit(df, n_upcs, upcs, stores), transform(df)
     """
 
     def __init__(self, min_coverage: float = 0.5, min_products: int = 1):
-        self.selector       = UPCSelector()
-        self.store_selector = StoreSelector()
-        self.filter         = CompleteObservationFilter(
+        self.selector = PanelSelector()
+        self.filter   = CompleteObservationFilter(
             min_coverage=min_coverage,
             min_products=min_products,
         )
         self.pivoter = MultiProductPivoter()
 
-    def fit(self, train_df: pd.DataFrame, n=None, upcs=None, stores=None) -> "MultiProductBuilder":
-        self.selector.fit(train_df, n=n, upcs=upcs)
-        self.store_selector.fit(train_df, n=n, stores=stores)
+    def fit(
+        self,
+        df: pd.DataFrame,
+        n_upcs: int | None = None,
+        upcs: list | None = None,
+        stores: list | None = None,
+    ) -> "MultiProductBuilder":
+        self.selector.fit(df, n_upcs=n_upcs, upcs=upcs, stores=stores)
 
-        train_filtered = self.filter.run(
-            train_df,
+        filtered = self.filter.run(
+            df,
             self.selector.selected_upcs,
-            self.store_selector.selected_stores,
+            self.selector.selected_stores,
         )
-        self.selector.selected_upcs = self.filter.valid_upcs
+        # El filtro puede reducir los UPCs (min_coverage); actualizamos
+        self.selector.selected_upcs  = self.filter.valid_upcs
         self.n = len(self.selector.selected_upcs)
         return self
 
@@ -40,7 +43,7 @@ class MultiProductBuilder:
         filtered = self.filter.run(
             df,
             self.selector.selected_upcs,
-            self.store_selector.selected_stores,
+            self.selector.selected_stores,
         )
         return self.pivoter.run(filtered, self.selector.selected_upcs)
 
@@ -50,4 +53,4 @@ class MultiProductBuilder:
 
     @property
     def selected_stores(self) -> list:
-        return self.store_selector.selected_stores
+        return self.selector.selected_stores
