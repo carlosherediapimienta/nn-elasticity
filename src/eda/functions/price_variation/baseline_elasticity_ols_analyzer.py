@@ -104,15 +104,29 @@ class BaselineElasticityOLSAnalyzer:
         n = len(y)
         if n < 3:
             return np.nan, np.nan, np.nan, np.nan, np.nan
+
         x_flat = x.flatten()
-        slope = np.cov(x_flat, y)[0, 1] / np.var(x_flat)
-        intercept = np.mean(y) - slope * np.mean(x_flat)
+        x_mean = np.mean(x_flat)
+        y_mean = np.mean(y)
+
+        xc = x_flat - x_mean
+        yc = y - y_mean
+
+        denom = np.sum(xc ** 2)
+        if denom == 0:
+            return np.nan, np.nan, np.nan, np.nan, np.nan
+
+        slope = np.sum(xc * yc) / denom
+        intercept = y_mean - slope * x_mean
+
         y_hat = intercept + slope * x_flat
         ss_res = np.sum((y - y_hat) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        ss_tot = np.sum((y - y_mean) ** 2)
         r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
         mse = ss_res / (n - 2) if n > 2 else 0.0
-        se_slope = np.sqrt(mse / np.sum((x_flat - np.mean(x_flat)) ** 2)) if np.var(x_flat) > 0 else np.nan
+
+        se_slope = np.sqrt(mse / denom) if denom > 0 else np.nan
         t = slope / se_slope if se_slope and se_slope > 0 else 0.0
         pval = 2 * (1 - stats.t.cdf(abs(t), n - 2))
+
         return float(slope), float(intercept), float(r2), float(se_slope), float(pval)

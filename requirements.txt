@@ -11,3 +11,6 @@ statsmodels>=0.14.0
 
 # Machine learning (for LinearRegression)
 scikit-learn>=1.3.0
+
+# Deep learning
+torch>=2.0.0
