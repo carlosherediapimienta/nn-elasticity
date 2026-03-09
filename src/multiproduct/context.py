@@ -9,7 +9,6 @@ class MultiProductContextEmbeddings(nn.Module):
     """
     Context embeddings for n-product wide format.
     No single UPC per row: store + week + Fourier + promo + n x per-product lags.
-    Shared by nn and nn_baseline.
     Public API: forward(batch) -> (B, out_dim)
     """
 
