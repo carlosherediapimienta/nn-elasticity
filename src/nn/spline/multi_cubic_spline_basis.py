@@ -71,11 +71,13 @@ class MultiCubicSplineBasis(nn.Module):
         Bx_s = u ** 3
         dBx_s = 3.0 * (u ** 2)
         ddBx_s = 6.0 * u
+        dddBx_s = 6.0 * (u > 0).float()
         IBx_s = (u ** 4) / 4.0
-
+        
         inv_scale = (1.0 / self.scale)[None, :, None]                # (1, n, 1)
         Bx = Bx_s
         dBx = dBx_s * inv_scale
         ddBx = ddBx_s * (inv_scale ** 2)
+        dddBx = dddBx_s * (inv_scale ** 3)
         IBx = IBx_s * self.scale[None, :, None]
-        return Bx, dBx, ddBx, IBx
+        return Bx, dBx, ddBx, dddBx, IBx
