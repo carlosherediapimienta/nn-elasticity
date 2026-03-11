@@ -13,12 +13,6 @@ class BenchmarkFairFormulaBuilder:
         rhs_terms: List[str] = [self.config.price_col]
         rhs_terms.extend(self.config.numeric_control_cols)
 
-        if self.config.include_store_fixed_effect:
-            rhs_terms.append(f"C({self.config.store_col})")
-
-        if self.config.include_upc_fixed_effect:
-            rhs_terms.append(f"C({self.config.upc_col})")
-
         if self.config.include_category_fixed_effect:
             rhs_terms.append(f"C({self.config.category_col})")
 
@@ -35,12 +29,6 @@ class ModelingDatasetBuilder:
     def build(self, df: pd.DataFrame) -> pd.DataFrame:
         cols = [self.config.target_col, self.config.price_col]
         cols += self.config.numeric_control_cols
-
-        if self.config.include_store_fixed_effect:
-            cols.append(self.config.store_col)
-
-        if self.config.include_upc_fixed_effect:
-            cols.append(self.config.upc_col)
 
         if self.config.include_category_fixed_effect:
             cols.append(self.config.category_col)

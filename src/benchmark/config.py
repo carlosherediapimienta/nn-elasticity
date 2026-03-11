@@ -39,8 +39,6 @@ class ElasticityConfig:
     upc_col: str = "upc_code"
     category_col: str = "category_code"
 
-    include_store_fixed_effect: bool = True
-    include_upc_fixed_effect: bool = True
     include_category_fixed_effect: bool = False
 
     robust_cov_type: str = "HC1"
