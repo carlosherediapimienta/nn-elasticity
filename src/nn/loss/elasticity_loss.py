@@ -60,6 +60,7 @@ class ElasticityLoss(nn.Module):
         obs_mask: torch.Tensor,  # (B, n)  ← nuevo
         w: torch.Tensor,         # (B, n, K)
         ddBx: torch.Tensor,      # (B, n, K)
+        dddBx: torch.Tensor,     # (B, n, K)
         u: torch.Tensor,         # (B, n_cross, K, K)
         Bx: torch.Tensor,        # (B, n, K)
         IBx: torch.Tensor,       # (B, n, K)
@@ -75,7 +76,7 @@ class ElasticityLoss(nn.Module):
 
         # 2. Smoothness penalty
         if self.lambda_smooth > 0.0:
-            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, IBx, pairs)
+            loss_smooth = self.smoothness_penalty.run(w, ddBx, dddBx, u, Bx, IBx, pairs)
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 

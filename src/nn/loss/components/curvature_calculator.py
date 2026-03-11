@@ -17,6 +17,7 @@ class CurvatureCalculator:
         self,
         w: torch.Tensor,      # (B, n, K)
         ddBx: torch.Tensor,   # (B, n, K)
+        dddBx: torch.Tensor,  # (B, n, K)
         u: torch.Tensor | None,      # (B, n_cross, K, K) or empty
         Bx: torch.Tensor,     # (B, n, K)
         IBx: torch.Tensor,    # (B, n, K)
@@ -43,7 +44,7 @@ class CurvatureCalculator:
         left = einsum('bpk,bpkl,bpl->bp', ddBx[:, i_idx], u, Bx[:, j_idx])
 
         # i is "right" in pair (j<i): Σ_{k,l} u_{p,k,l} · Ψ_k(x_j) · B''_l(x_i)
-        right = einsum('bpk,bpkl,bpl->bp', IBx[:, i_idx], u, ddBx[:, j_idx])
+        right = einsum('bpk,bpkl,bpl->bp', IBx[:, i_idx], u, dddBx[:, j_idx])
 
         i_exp = i_idx.unsqueeze(0).expand(B, -1)
         j_exp = j_idx.unsqueeze(0).expand(B, -1)

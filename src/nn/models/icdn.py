@@ -39,20 +39,22 @@ class ICDN(nn.Module):
 
         if isinstance(self.price_splines, MultiCubicSplineBasis):
             # Vectorized spline evaluation (recommended for n >> 2)
-            Bx, dBx, ddBx, IBx = self.price_splines(x)
+            Bx, dBx, ddBx, dddBx, IBx = self.price_splines(x)
         else:
             # Legacy per-product loop
-            Bx_list, dBx_list, ddBx_list, IBx_list = [], [], [], []
+            Bx_list, dBx_list, ddBx_list, dddBx_list, IBx_list = [], [], [], [], []
             for i, spline in enumerate(self.price_splines):
-                Bx_i, dBx_i, ddBx_i, IBx_i = spline(x[:, i])
+                Bx_i, dBx_i, ddBx_i, dddBx_i, IBx_i = spline(x[:, i])
                 Bx_list.append(Bx_i)
                 dBx_list.append(dBx_i)
                 ddBx_list.append(ddBx_i)
+                dddBx_list.append(dddBx_i)
                 IBx_list.append(IBx_i)
 
             Bx   = torch.stack(Bx_list,   dim=1)
             dBx  = torch.stack(dBx_list,  dim=1)
             ddBx = torch.stack(ddBx_list, dim=1)
+            dddBx = torch.stack(dddBx_list, dim=1)
             IBx  = torch.stack(IBx_list,  dim=1)
 
         y_hat, eps_hat, aux = self.head.run(
@@ -61,7 +63,7 @@ class ICDN(nn.Module):
         )
 
         if return_parts:
-            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx, "IBx": IBx})
+            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx, "dddBx": dddBx, "IBx": IBx})
             return y_hat, eps_hat, aux
 
         return y_hat, eps_hat
