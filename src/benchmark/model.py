@@ -23,9 +23,16 @@ class LogLogBenchmarkFairModel:
         model = smf.ols(formula=formula, data=model_df)
         self.result = model.fit(cov_type=self.robust_cov_type)
 
+    def predict(self, model_df: pd.DataFrame) -> pd.Series:
+        self._check_fitted()
+        return self.result.predict(model_df)
+
     def elasticity(self) -> float:
         self._check_fitted()
-        return float(self.result.params[self.price_col])
+        coef = self.result.params.get(self.price_col)
+        if coef is None or pd.isna(coef):
+            raise ValueError(f"Elasticity coefficient '{self.price_col}' not available.")
+        return float(coef)
 
     def confidence_interval_for_elasticity(self) -> Dict[str, float]:
         self._check_fitted()
