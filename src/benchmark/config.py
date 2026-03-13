@@ -7,6 +7,7 @@ class ElasticityConfig:
     csv_path: str
     target_col: str = "log_liters_sold"
     price_col: str = "log_price_per_liter"
+    cross_price_cols: List[str] = field(default_factory=list)
 
     numeric_control_cols: List[str] = field(default_factory=lambda: [
         "on_promo",

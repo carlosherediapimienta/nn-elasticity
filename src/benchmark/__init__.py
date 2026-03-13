@@ -1,12 +1,12 @@
 from .config import ElasticityConfig
-from .builder import ModelingDatasetBuilder, BenchmarkFairFormulaBuilder
-from .model import LogLogBenchmarkFairModel
-from .ols import ElasticityBenchmarkFairPipeline
+from .builder import ModelingDatasetBuilder, BenchmarkFormulaBuilder
+from .model import LogLogBenchmarkModel
+from .ols import ElasticityBenchmarkPipeline
 
 __all__ = [
     "ElasticityConfig",
     "ModelingDatasetBuilder",
-    "BenchmarkFairFormulaBuilder",
-    "LogLogBenchmarkFairModel",
-    "ElasticityBenchmarkFairPipeline",
+    "BenchmarkFormulaBuilder",
+    "LogLogBenchmarkModel",
+    "ElasticityBenchmarkPipeline",
 ]
