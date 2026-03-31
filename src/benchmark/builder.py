@@ -3,7 +3,7 @@ import pandas as pd
 from .config import ElasticityConfig
 
 
-class BenchmarkFairFormulaBuilder:
+class BenchmarkFormulaBuilder:
     """Responsabilidad única: construir la fórmula statsmodels."""
 
     def __init__(self, config: ElasticityConfig) -> None:
@@ -11,6 +11,7 @@ class BenchmarkFairFormulaBuilder:
 
     def build_formula(self) -> str:
         rhs_terms: List[str] = [self.config.price_col]
+        rhs_terms.extend(self.config.cross_price_cols)
         rhs_terms.extend(self.config.numeric_control_cols)
 
         if self.config.include_category_fixed_effect:
@@ -28,6 +29,7 @@ class ModelingDatasetBuilder:
 
     def build(self, df: pd.DataFrame) -> pd.DataFrame:
         cols = [self.config.target_col, self.config.price_col]
+        cols += self.config.cross_price_cols
         cols += self.config.numeric_control_cols
 
         if self.config.include_category_fixed_effect:
