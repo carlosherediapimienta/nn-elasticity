@@ -8,22 +8,8 @@ class IntegrableDemandHead(nn.Module):
     """
     Multiproduct demand head derived from an integrable scalar potential.
 
-    Potential:
-      Φ(x,c) = Σ_i [b_i·x_i + beta_i/2·x_i² + Σ_k w_{ik}·Ψ_k(x_i)]
-             + Σ_{p=(i<j)} Σ_{k,l} u_{p,k,l} · Ψ_k(x_i) · B_l(x_j)
-
-    Demand  y = ∂Φ/∂x  →  exact Slutsky symmetry by construction.
-
-    Own-price elasticity:
-      ∂y_i/∂x_i = beta_i(c) + Σ_k w_{ik}·B'_k(x_i)
-                + Σ_{j: p=(i,j)} Σ_{k,l} u_{p,k,l}·B'_k(x_i)·B_l(x_j)
-                + Σ_{j: p=(j,i)} Σ_{k,l} u_{p,k,l}·Ψ_k(x_j)·B''_l(x_i)
-
-    Cross-price elasticity (symmetric):
-      ∂y_i/∂x_j = Σ_{k,l} u_{p,k,l}·B_k(x_i)·B'_l(x_j)   for p=(i<j)
-
     Delegation:
-    - ContextMLP:           encodes context c → h
+    - ContextMLP:           encodes context c to h
     - DemandParameterHead:  produces b, beta, w, u from h
     - DemandCalculator:     computes y_hat, eps_hat, E
 
@@ -40,18 +26,19 @@ class IntegrableDemandHead(nn.Module):
         dropout=0.0,
         enforce_negative_beta: bool = False,
         use_cross: bool = True,
-        context_encoder: ContextMLP | None = None,
-        parameter_head: DemandParameterHead | None = None,
-        demand_calc: DemandCalculator | None = None,
     ):
         super().__init__()
 
-        self.ctx = context_encoder or ContextMLP(
+        # Build the context MLP.
+        self.ctx = ContextMLP(
             context_dim, hidden=hidden, act=act, dropout=dropout
         )
-        H = self.ctx.out_dim
+        H = self.ctx.out_dim # Hidden dimension of the context MLP.
 
-        self.param_head = parameter_head or DemandParameterHead(
+        # Build the demand parameter head for the parameters b, beta, w, u.
+        # It will output a tensor of shape (B, n) for b, (B, n) for beta,
+        # (B, n, K) for w, and (B, n_cross, K, K) for u.
+        self.param_head = DemandParameterHead(
             hidden_dim=H,
             K_splines=K_splines,
             n=n,
@@ -59,7 +46,9 @@ class IntegrableDemandHead(nn.Module):
             use_cross=use_cross,
         )
 
-        self.demand_calc    = demand_calc    or DemandCalculator()
+        # Build the demand calculator to compute the predicted demand y_hat,
+        # the own-price elasticity eps_hat, and the elasticity matrix E.
+        self.demand_calc    = DemandCalculator()
 
     def run(
         self,
@@ -72,9 +61,25 @@ class IntegrableDemandHead(nn.Module):
         return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
+        # ── Step 1: Compute the latent representation h from the context c.
+        # The context c is a tensor of shape (B, context_dim).
+        # The latent representation h is a tensor of shape (B, hidden_dim).
+        # We use the context MLP to compute the latent representation h.
         h      = self.ctx(c)
+
+        # ── Step 2: Compute the parameters b, beta, w, u from the latent representation h.
+        # The parameters b, beta, w, u are a tensor of shape (B, n) for b,
+        # (B, n) for beta, (B, n, K) for w, and (B, n_cross, K, K) for u.
+        # We use the demand parameter head to compute the parameters b, beta, w, u.
         params = self.param_head.run(h)   # {b, beta, w, u, pairs}
 
+        # ── Step 3: Compute the predicted demand y_hat, the own-price elasticity eps_hat,
+        # and the elasticity matrix E.
+        # The predicted demand y_hat is a tensor of shape (B, n).
+        # The own-price elasticity eps_hat is a tensor of shape (B, n).
+        # The elasticity matrix E is a tensor of shape (B, n, n).
+        # We use the demand calculator to compute the predicted demand y_hat,
+        # the own-price elasticity eps_hat, and the elasticity matrix E.
         y_hat, eps_hat, E = self.demand_calc.run(
             b=params['b'],
             beta=params['beta'],

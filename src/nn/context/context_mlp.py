@@ -1,10 +1,17 @@
 import torch
 import torch.nn as nn
 
-
 class ContextMLP(nn.Module):
     """
-    Smooth encoder MLP to transform context.
+    MLP that encodes the raw context vector into a richer, more expressive representation.
+
+    The concatenated context (store embedding + time + promo + per-product features) contains
+    no interactions between its components. This MLP learns non-linear combinations across all
+    features, allowing the model to capture patterns such as "high lag_1 + on_promo in store X".
+
+    Smooth activations (tanh, softplus, gelu) are used instead of ReLU to ensure the output
+    is differentiable everywhere — a requirement for integration over price.
+
     Public API: forward() (following nn.Module convention).
     """
     
@@ -18,17 +25,21 @@ class ContextMLP(nn.Module):
         """
         super().__init__()
         
+        # Dictionary of supported activation functions.
         acts = {
             "tanh": nn.Tanh(),
             "softplus": nn.Softplus(),
             "gelu": nn.GELU(),
         }
         
+        # We check that the activation function is supported.
         if act not in acts:
             raise ValueError(f"Activation '{act}' not supported. Use: {list(acts.keys())}")
         
+        # We get the activation function.
         a = acts[act]
 
+        # We build the MLP. Architecture: [Linear, Activation, Dropout] * num_layers.
         layers = []
         prev = d_in
         for h in hidden:
@@ -38,6 +49,7 @@ class ContextMLP(nn.Module):
                 layers.append(nn.Dropout(dropout))
             prev = h
         
+        # We set the output dimension of the MLP.
         self.net = nn.Sequential(*layers)
         self.out_dim = prev
 
@@ -49,6 +61,7 @@ class ContextMLP(nn.Module):
             c: (B, d_in) context tensor
         
         Returns:
-            (B, out_dim) processed representation
+            (B, out_dim) processed representation. This is called h and
+            named latent representation in the article.
         """
         return self.net(c)
