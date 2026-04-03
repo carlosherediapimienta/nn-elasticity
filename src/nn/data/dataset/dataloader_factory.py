@@ -21,10 +21,6 @@ class DataLoaderFactory:
         """
         self.num_workers = num_workers
         self.pin_memory = pin_memory
-
-    def _calculate_batch_size(self, dataset: Dataset, target_batches: int = 10) -> int:
-        raw = max(1, len(dataset) // target_batches)
-        return max(1, 2 ** round(math.log2(raw)))
     
     def create_train_loader(
         self,
@@ -38,17 +34,13 @@ class DataLoaderFactory:
         
         Args:
             dataset: Dataset to load
-            batch_size: batch size (uses default if None)
+            batch_size: batch size
             shuffle: if True, shuffles the data
             drop_last: if True, drops the last incomplete batch
         
         Returns:
             Configured DataLoader for training
         """
-
-        if batch_size is None:
-            batch_size = self._calculate_batch_size(dataset)
-
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -69,20 +61,17 @@ class DataLoaderFactory:
         
         Args:
             dataset: Dataset to load
-            batch_size: batch size (uses default if None)
+            batch_size: batch size
             shuffle: if True, shuffles the data (normally False for eval)
         
         Returns:
             Configured DataLoader for evaluation
         """
-        if batch_size is None:
-            batch_size = self._calculate_batch_size(dataset)
-
         return DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            drop_last=False  # Don't drop in eval
+            drop_last=False # Don't drop the last batch
         )
