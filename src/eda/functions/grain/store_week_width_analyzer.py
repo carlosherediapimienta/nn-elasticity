@@ -3,8 +3,8 @@ import pandas as pd
 
 class StoreWeekWidthAnalyzer:
     """
-    Analiza el "ancho" del panel por tienda-semana:
-    nº de UPCs distintos por (store, week).
+    Analyzes the width of the panel by store-week:
+    number of distinct UPCs by (store, week).
     Public API: run().
     """
 
@@ -17,26 +17,26 @@ class StoreWeekWidthAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) sin duplicados.
-            store_col: nombre de la columna de tienda.
-            upc_col: nombre de la columna de producto/UPC.
-            week_col: nombre de la columna de semana.
+            df: DataFrame with grain (store, upc, week) without duplicates.
+            store_col: store column.
+            upc_col: product/UPC column.
+            week_col: week column.
 
         Returns:
-            dict con:
-                - per_store_week_width: DataFrame con columnas
-                    * store_col
-                    * week_col
-                    * n_upcs_store_week
-                - summary_stats: dict con resumen estadístico
+            dict with:
+                - per_store_week_width: DataFrame with columns
+                    * store_col: store column
+                    * week_col: week column
+                    * n_upcs_store_week: number of distinct UPCs per store-week
+                - summary_stats: dict with summary statistics
                     * count, mean, std, min, max
                     * p05, p25, p50, p75, p95
         """
         for col in [store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # nº de UPCs distintos por tienda-semana
+        # number of distinct UPCs per store-week
         width_series = (
             df.groupby([store_col, week_col])[upc_col]
             .nunique()
@@ -45,7 +45,7 @@ class StoreWeekWidthAnalyzer:
 
         per_store_week_width = width_series.reset_index()
 
-        # Estadísticos básicos
+        # Basic statistics
         s = per_store_week_width["n_upcs_store_week"]
         summary_stats = {
             "count": int(s.shape[0]),

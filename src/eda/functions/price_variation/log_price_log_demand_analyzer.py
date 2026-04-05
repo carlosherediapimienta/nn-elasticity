@@ -5,9 +5,9 @@ from scipy import stats
 
 class LogPriceLogDemandAnalyzer:
     """
-    Sanity check económico: correlación log(precio)–log(demanda)
-    en tres escenarios (global, within store×UPC, within non‑promo).
-    NO causal, pero útil para comprobar señal negativa y papel de la promo.
+    Sanity check economic: correlation of log(price)–log(demand)
+    in three scenarios (global, within store×UPC, within non‑promo).
+    NO causal, but useful to check for negative signal and the role of promo.
     Public API: run().
     """
 
@@ -22,23 +22,23 @@ class LogPriceLogDemandAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) y columnas precio, demanda, promo.
-            price_col: columna de precio en log.
-            demand_col: columna de demanda en log.
-            store_col, upc_col: columnas de agrupación para “within”.
-            promo_col: columna 0/1 de promo (para filtrar non‑promo).
+            df: DataFrame with grain (store, upc, week) and price, demand, promo columns.
+            price_col: price column in log.
+            demand_col: demand column in log.
+            store_col, upc_col: grouping columns for “within”.
+            promo_col: promo column (0/1) for filtering non‑promo.
 
         Returns:
-            dict con:
-                - corr_global: correlación Pearson global (todas las filas).
-                - corr_within_store_upc: correlación sobre series demeaned por (store, upc).
-                - corr_global_non_promo: correlación global restringida a filas con promo=0.
-                - n_obs, n_obs_non_promo (conteos).
-                - pvalue para cada correlación (opcional).
+            dict with:
+                - corr_global: Spearman global correlation (all rows).
+                - corr_within_store_upc: correlation on series demeaned by (store, upc).
+                - corr_global_non_promo: global correlation restricted to rows with promo=0.
+                - n_obs, n_obs_non_promo (counts).
+                - pvalue for each correlation (optional).
         """
         for col in [price_col, demand_col, store_col, upc_col, promo_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         df_work = df[[store_col, upc_col, price_col, demand_col, promo_col]].dropna(
             subset=[price_col, demand_col]
@@ -48,13 +48,13 @@ class LogPriceLogDemandAnalyzer:
         # --- Global ---
         r_global, p_global = stats.spearmanr(df_work[price_col], df_work[demand_col])
 
-        # --- Within (demean por store×UPC) ---
+        # --- Within (demean by store×UPC) ---
         df_work = df_work.copy()
         df_work["_p_dm"] = df_work[price_col] - df_work.groupby([store_col, upc_col])[price_col].transform("mean")
         df_work["_d_dm"] = df_work[demand_col] - df_work.groupby([store_col, upc_col])[demand_col].transform("mean")
         r_within, p_within = stats.spearmanr(df_work["_p_dm"], df_work["_d_dm"])
 
-        # --- Within non‑promo (global sobre filas con promo=0) ---
+        # --- Within non‑promo (global on rows with promo=0) ---
         non_promo = df_work[df_work[promo_col].eq(0)]
         n_obs_non_promo = len(non_promo)
         if n_obs_non_promo < 3:

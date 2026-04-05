@@ -3,39 +3,39 @@ import pandas as pd
 
 class GrainUniquenessAnalyzer:
     """
-    Valida que un conjunto de columnas define el grano (unicidad) del DataFrame.
+    Validates that a set of columns defines the grain (uniqueness) of the DataFrame.
     Public API: run().
     """
 
     def run(self, df: pd.DataFrame, grain_cols: list[str]) -> pd.DataFrame:
         """
         Args:
-            df: DataFrame con los datos.
-            grain_cols: columnas que definen el grano, por ejemplo
+            df: DataFrame with the data.
+            grain_cols: columns that define the grain, for example
                         ["week_id", "store_code", "upc_code"].
 
         Returns:
-            DataFrame de una sola fila con:
-                - grain_cols: columnas del grano (como string separado por comas)
-                - n_rows: número total de filas
-                - n_unique_keys: número de combinaciones únicas del grano
-                - n_duplicate_keys: número de claves de grano con más de 1 fila
-                - pct_duplicate_keys: % de claves de grano duplicadas
-                - n_rows_with_missing_in_grain: nº de filas con al menos un NaN en el grano
-                - is_unique_grain: bool, True si el grano es perfectamente único y sin NaNs
+            DataFrame with a single row with:
+                - grain_cols: grain columns (as a string separated by commas)
+                - n_rows: total number of rows
+                - n_unique_keys: number of unique grain combinations
+                - n_duplicate_keys: number of grain keys with more than 1 row
+                - pct_duplicate_keys: % of duplicate grain keys
+                - n_rows_with_missing_in_grain: number of rows with at least one NaN in the grain
+                - is_unique_grain: bool, True if the grain is perfectly unique and without NaNs
         """
         missing_cols = [c for c in grain_cols if c not in df.columns]
         if missing_cols:
-            raise ValueError(f"Faltan columnas del grano en el DataFrame: {missing_cols}")
+            raise ValueError(f"Missing grain columns in the DataFrame: {missing_cols}")
 
         grain_df = df[grain_cols]
 
-        # Filas con algún NaN en el grano
+        # Rows with any NaN in the grain
         n_rows_with_missing = int(grain_df.isna().any(axis=1).sum())
 
         n_rows = int(len(df))
 
-        # Conteo de combinaciones de grano (incluyendo NaNs si los hubiera)
+        # Count of grain combinations (including NaNs if any)
         key_counts = (
             grain_df
             .groupby(grain_cols, dropna=False)

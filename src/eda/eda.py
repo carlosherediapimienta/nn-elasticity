@@ -28,8 +28,28 @@ from .functions.price_variation import (
 
 class EDA:
     """
-    Orchestrator of EDA analysis. Coordinates NanAnalyzer, AggregatedTrendAnalyzer, TemporalFeatureBuilder using only their public API (run).
-    Public API of this class: run().
+    Facade for exploratory data analysis of Dominick's panel data.
+
+    Provides a unified interface over 13 specialized analyzers, grouped into
+    four analysis areas:
+
+      Data Quality:
+        analyze_nans, analyze_grain_uniqueness, analyze_dataset_coverage,
+        impute_calendar_gaps, analyze_panel_balance, analyze_store_week_coverage,
+        analyze_store_week_width, analyze_store_upc_coverage
+
+      Price Variation:
+        analyze_price_variation, analyze_promo_price_collinearity,
+        analyze_log_price_log_demand, analyze_baseline_elasticity_ols
+
+      Outliers:
+        analyze_outliers
+
+      Time Series:
+        analyze_aggregated_trends, build_temporal_features, analyze_autocorrelation
+
+    Each method delegates directly to its analyzer's .run() method.
+    All analyzers are instantiated internally with default configuration.
     """
 
     def __init__(self):

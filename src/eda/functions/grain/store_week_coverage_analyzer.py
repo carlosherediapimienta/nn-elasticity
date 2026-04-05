@@ -3,9 +3,9 @@ import pandas as pd
 
 class StoreWeekCoverageAnalyzer:
     """
-    Analiza la cobertura store-week:
-    - Cobertura global (store_week observados vs posibles)
-    - Distribución de nº de weeks por store
+    Analyzes store-week coverage:
+    - Global coverage (observed store-weeks vs possible)
+    - Distribution of number of weeks per store
     Public API: run().
     """
 
@@ -18,35 +18,35 @@ class StoreWeekCoverageAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) sin duplicados.
-            store_col: nombre de la columna de tienda.
-            week_col: nombre de la columna de semana.
-            min_weeks_for_good: umbral de weeks para marcar stores de baja cobertura.
+            df: DataFrame with grain (store, upc, week) without duplicates.
+            store_col: store column.
+            week_col: week column.
+            min_weeks_for_good: threshold of weeks to mark stores with low coverage.
 
         Returns:
-            dict con:
+            dict with:
                 - n_stores: nº de stores distintos
-                - n_weeks_global: nº de weeks distintas en el dataset
-                - n_store_week_possible: combinaciones store-week posibles
+                - n_weeks_global: number of distinct weeks in the dataset
+                - n_store_week_possible: possible store-weeks combinations
                                          = n_stores × n_weeks_global
-                - n_store_week_observed: combinaciones store-week observadas
-                                         (pares únicos store-week)
-                - store_week_density: densidad en [0,1]
-                - store_week_density_pct: densidad en %
-                - n_missing_store_weeks: nº de store-weeks ausentes
-                - pct_missing_store_weeks: % de store-weeks ausentes
-                - min_weeks_for_good: umbral usado
-                - n_low_coverage_stores: nº de stores con weeks < umbral
-                - low_coverage_stores: lista de IDs de esos stores
+                - n_store_week_observed: observed store-weeks combinations
+                                         (unique store-week pairs)
+                - store_week_density: density in [0,1]
+                - store_week_density_pct: density in %
+                - n_missing_store_weeks: number of missing store-weeks
+                - pct_missing_store_weeks: % of missing store-weeks
+                - min_weeks_for_good: threshold used
+                - n_low_coverage_stores: number of stores with weeks < threshold
+                - low_coverage_stores: list of IDs of those stores
                 - per_store_coverage: DataFrame con:
-                    * store_col
-                    * n_weeks_store
-                    * coverage_pct
-                    * is_low_coverage (bool)
+                    * store_col: store column
+                    * n_weeks_store: number of weeks per store
+                    * coverage_pct: coverage percentage
+                    * is_low_coverage: bool, True if the store has low coverage
         """
         for col in [store_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         # Stats globales
         n_stores = int(df[store_col].nunique(dropna=True))
@@ -73,7 +73,7 @@ class StoreWeekCoverageAnalyzer:
             else 0.0
         )
 
-        # Distribución de weeks por store
+        # Distribution of weeks by store
         per_store = (
             df[[store_col, week_col]]
             .drop_duplicates()

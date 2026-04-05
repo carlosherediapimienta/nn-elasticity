@@ -5,9 +5,9 @@ from typing import Optional
 
 class TemporalFeatureBuilder:
     """
-    Añade features temporales orientadas a elasticidad:
-    week_rank, estacionalidad sin/cos, weeks_since_first_seen, lags/rolling de demanda,
-    promo_intensity por store-week.
+    Adds temporal features oriented to elasticity:
+    week_rank, seasonal sin/cos, weeks_since_first_seen, lags/rolling demand,
+    promo_intensity by store-week.
     Public API: run().
     """
 
@@ -28,20 +28,25 @@ class TemporalFeatureBuilder:
     ) -> pd.DataFrame:
         """
         Args:
-            df: DataFrame con grano (store, upc, week). Debe estar ordenado o se ordena internamente.
-            week_col: columna de semana (id numérico).
-            store_col, upc_col: columnas de tienda y producto.
-            demand_col: columna de demanda (para lags y rolling).
-            promo_col: columna 0/1 de promo (para promo_intensity store-week).
-            season_periods: períodos para sin/cos (default [52]; opcional [52, 26, 13]).
-            lag_weeks: lags de demanda (default [1, 2, 4]).
-            rolling_windows: ventanas para media/mediana (default [4, 8, 13]).
-            include_lifecycle_upc: añadir weeks_since_first_seen por UPC.
-            include_lifecycle_store_upc: añadir weeks_since_first_seen por store×UPC.
-            include_promo_intensity: añadir share de UPCs en promo por store-week.
+            df                       : DataFrame with grain (store, upc, week).
+                                       Sorted internally if not already.
+            week_col                 : numeric week identifier column.
+            store_col                : store identifier column.
+            upc_col                  : product identifier column.
+            demand_col               : demand column used for lags and rolling stats
+                                       (default: log_liters_sold).
+            promo_col                : binary promo column (0/1) used for promo_intensity
+                                       (default: on_promo).
+            season_periods           : periods for sin/cos seasonality encoding
+                                       (default: [52]; consider also [52, 26, 13]).
+            lag_weeks                : demand lag periods to add (default: [1, 2, 4]).
+            rolling_windows          : windows for rolling mean/median (default: [4, 8, 13]).
+            include_lifecycle_upc    : add weeks_since_first_seen per UPC.
+            include_lifecycle_store_upc: add weeks_since_first_seen per store × UPC.
+            include_promo_intensity  : add share of UPCs on promo per store-week.
 
         Returns:
-            DataFrame original con columnas añadidas (no modifica el original).
+            Original DataFrame with new columns appended (input is not modified).
         """
         if season_periods is None:
             season_periods = [52]
@@ -53,14 +58,14 @@ class TemporalFeatureBuilder:
         out = df.copy()
         for c in [week_col, store_col, upc_col]:
             if c not in out.columns:
-                raise ValueError(f"Columna '{c}' no encontrada.")
+                raise ValueError(f"Column '{c}' not found.")
 
-        # ----- week_rank (índice secuencial sin huecos) -----
+        # ----- week_rank (sequential index without gaps) -----
         unique_weeks = np.sort(out[week_col].dropna().unique())
         week_to_rank = {w: i + 1 for i, w in enumerate(unique_weeks)}
         out["week_rank"] = out[week_col].map(week_to_rank)
 
-        # ----- Estacionalidad sin/cos -----
+        # ----- Seasonality sin/cos -----
         for p in season_periods:
             out[f"sin_{p}"] = np.sin(2 * np.pi * out["week_rank"] / p)
             out[f"cos_{p}"] = np.cos(2 * np.pi * out["week_rank"] / p)
@@ -73,7 +78,7 @@ class TemporalFeatureBuilder:
             first_rank_su = out.groupby([store_col, upc_col])["week_rank"].transform("min")
             out["weeks_since_first_seen_store_upc"] = (out["week_rank"] - first_rank_su).astype(int)
 
-        # ----- Lags y rolling (dentro de store×upc, ordenado por semana) -----
+        # ----- Lags and rolling (within store×upc, ordered by week) -----
         if demand_col in out.columns:
                 out = out.sort_values([store_col, upc_col, week_col]).reset_index(drop=True)
                 g = out.groupby([store_col, upc_col])[demand_col]
@@ -82,7 +87,7 @@ class TemporalFeatureBuilder:
                     out[col_lag] = g.shift(k)
                     out[f"miss_lag_{k}"] = (out[col_lag].isna() | ~np.isfinite(out[col_lag])).astype(int)
                     out[col_lag] = out[col_lag].fillna(0.0)
-                # Rolling estrictamente histórico: media/mediana de las w semanas ANTERIORES (sin incluir t)
+                # Rolling strictly historical: mean/median of the w weeks BEFORE (excluding t)
                 for w in rolling_windows:
                     col_rm = f"rolling_mean_{w}_{demand_col}"
                     col_rmed = f"rolling_median_{w}_{demand_col}"
@@ -99,7 +104,7 @@ class TemporalFeatureBuilder:
                     out[col_rm] = out[col_rm].fillna(0.0)
                     out[col_rmed] = out[col_rmed].fillna(0.0)
 
-        # ----- Intensidad promo por store-week (share de UPCs en promo) -----
+        # ----- Promo intensity by store-week (share of UPCs on promo) -----
         if include_promo_intensity and promo_col in out.columns:
             store_week_promo = (
                 out.groupby([store_col, week_col])[promo_col]
