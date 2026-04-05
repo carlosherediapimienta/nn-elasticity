@@ -75,7 +75,20 @@ class TemporalSplitter:
 
 
 class BlockBootstrapSampler:
-    """Responsabilidad única: re-muestreo por bloques de semanas para bootstrap."""
+    """
+    Block bootstrap resampler for panel time-series data.
+    Instead of sampling individual weeks at random (which would break temporal
+    dependencies), this class samples contiguous blocks of `block_size` weeks
+    with replacement. This preserves the short-run autocorrelation structure
+    within each block while still introducing variability across bootstrap draws.
+    Args:
+        week_col   (str):                       Name of the week identifier column.
+        block_size (int):                       Number of consecutive weeks per block.
+        rng        (np.random.Generator|None):  Random number generator for reproducibility.
+                                                Defaults to a fresh Generator if not provided.
+    Public API:
+        sample(df, train_weeks) -> pd.DataFrame
+    """
 
     def __init__(
         self,
@@ -93,7 +106,7 @@ class BlockBootstrapSampler:
         train_weeks: List | np.ndarray,
     ) -> pd.DataFrame:
         """
-        Block bootstrap con reemplazo: conserva multiplicidad de bloques repetidos.
+        Block bootstrap with replacement: preserves block multiplicity.
         """
         train_weeks = (
             sorted(train_weeks)
