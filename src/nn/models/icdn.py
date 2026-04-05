@@ -1,64 +1,62 @@
 import torch
 import torch.nn as nn
-from ..spline import MultiCubicSplineBasis
-
 
 class ICDN(nn.Module):
     """
-    Integrable Context-Dependent Demand Network 1D.
-    
-    Complete model that integrates:
-      1. context_builder: generate context vector c
-      2. price_spline: calculate spline bases and derivatives for price
-      3. head: predict demand and elasticity
-    
+    Integrable Context-Dependent Demand Network (multiproduct).
+    Combines three submodules into a single forward pass:
+      1. context_builder  (MultiProductContextEmbeddings): encodes store, UPC,
+         week and promotional features into a context vector c.
+      2. price_splines    (MultiCubicSplineBasis): evaluates cubic spline bases
+         and their derivatives / antiderivatives for all n log-prices at once.
+      3. head             (IntegrableDemandHead): maps (c, x, splines) to
+         predicted log-demand y_hat and own-price elasticity eps_hat.
     Pipeline:
-      c = context_builder(store_code, upc_code, week_id, on_promo, promo_B, promo_C, promo_S, liters_per_upc)
-      (Bx, dBx, ddBx) = price_spline(log_price)
-      y_hat, eps_hat = head(c, log_price, Bx, dBx)    
+      c                            = context_builder(batch)          # (B, context_dim)
+      x                            = stack(log_price_0..n-1)         # (B, n)
+      Bx, dBx, ddBx, dddBx, IBx   = price_splines(x)               # (B, n, K) each
+      y_hat, eps_hat               = head(c, x, Bx, dBx, ddBx, IBx) # (B, n) each
+    Args:
+        context_builder (nn.Module): produces the context vector c.
+        price_splines   (MultiCubicSplineBasis): vectorized spline evaluator.
+        head            (IntegrableDemandHead): demand and elasticity predictor.
+        n               (int): number of products.
     """
     
-    def __init__(self, context_builder, price_splines: nn.Module, head, n: int):
+    def __init__(self, 
+        context_builder,
+        price_splines,
+        head,
+        n,
+    ):
         """
         Args:
-            context_builder: module that generates context vector
+            context_builder: MultiProductContextEmbeddings
                             (e.g.: DemandContextEmbeddings)
-            price_spline: generator of spline bases for price
-            head: head that predicts demand and elasticity
+            price_spline: MultiCubicSplineBasis
+            head: IntegrableDemandHead
         """
         super().__init__()
-        self.context_builder = context_builder
-        self.price_splines = price_splines
-        self.head = head
-        self.n = n
-
+        self.context_builder = context_builder # MultiProductContextEmbeddings
+        self.price_splines = price_splines # MultiCubicSplineBasis
+        self.head = head # IntegrableDemandHead
+        self.n = n # Number of products
 
     def run(self, batch, return_parts: bool = False, compute_E: bool = False):
+        # (B, out_dim) - Context vector.
         c = self.context_builder(batch)
+        # (B, n) - Price vector. 
         x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
-
-        if isinstance(self.price_splines, MultiCubicSplineBasis):
-            # Vectorized spline evaluation (recommended for n >> 2)
-            Bx, dBx, ddBx, dddBx, IBx = self.price_splines(x)
-        else:
-            # Legacy per-product loop
-            Bx_list, dBx_list, ddBx_list, dddBx_list, IBx_list = [], [], [], [], []
-            for i, spline in enumerate(self.price_splines):
-                Bx_i, dBx_i, ddBx_i, dddBx_i, IBx_i = spline(x[:, i])
-                Bx_list.append(Bx_i)
-                dBx_list.append(dBx_i)
-                ddBx_list.append(ddBx_i)
-                dddBx_list.append(dddBx_i)
-                IBx_list.append(IBx_i)
-
-            Bx   = torch.stack(Bx_list,   dim=1)
-            dBx  = torch.stack(dBx_list,  dim=1)
-            ddBx = torch.stack(ddBx_list, dim=1)
-            dddBx = torch.stack(dddBx_list, dim=1)
-            IBx  = torch.stack(IBx_list,  dim=1)
-
+        # Compute the spline bases, derivatives, and antiderivatives.
+        Bx, dBx, ddBx, dddBx, IBx = self.price_splines(x) 
+        # Compute the predicted demand and elasticity.
         y_hat, eps_hat, aux = self.head.run(
-            c, x, Bx, dBx, ddBx, IBx,
+            c=c,
+            x=x,
+            Bx=Bx,
+            dBx=dBx,
+            ddBx=ddBx,
+            IBx=IBx,
             return_E=compute_E,
         )
 
