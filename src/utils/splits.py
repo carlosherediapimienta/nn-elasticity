@@ -108,30 +108,50 @@ class BlockBootstrapSampler:
         """
         Block bootstrap with replacement: preserves block multiplicity.
         """
+        # Sort train_weeks to guarantee block contiguity; convert to list if needed.
         train_weeks = (
             sorted(train_weeks)
             if not isinstance(train_weeks, np.ndarray)
             else np.sort(train_weeks).tolist()
         )
-        n_weeks = len(train_weeks)
+        n_weeks = len(train_weeks) # Number of weeks in the training set.
 
-        if n_weeks < self.block_size:
+        if n_weeks < self.block_size: 
+            # If the number of weeks is less than the block size, we return the
+            # entire dataframe.
             return df[df[self.week_col].isin(train_weeks)].copy()
+
+        # Build non-overlapping block start indices, then sample n_blocks of them
+        # with replacement. Each sampled index selects a contiguous window of
+        # block_size weeks from train_weeks.
+        #
+        # Example — 10 weeks, block_size=4:
+        #   train_weeks  = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        #   block_starts = [0, 4, 8]          indices into train_weeks
+        #   n_blocks     = 3
 
         block_starts = list(range(0, n_weeks - self.block_size + 1, self.block_size))
         if not block_starts:
             block_starts = [0]
         n_blocks = len(block_starts)
 
+        # Sample n_blocks of the block start indices with replacement.
+        # Namely, take the last example, therefore:
+        #   sampled_indices (with replacement) = [2, 0, 2]
+        #
+        #   idx=2 → weeks [9, 10]  (short tail block)
+        #   idx=0 → weeks [1, 2, 3, 4]
+        #   idx=2 → weeks [9, 10]  (repeated)
         sampled_indices = self.rng.choice(
             len(block_starts), size=n_blocks, replace=True
         )
 
+        # Concatenate the blocks into a single dataframe.
         pieces = []
         for idx in sampled_indices:
-            start = block_starts[idx]
-            sampled_block_weeks = train_weeks[start : start + self.block_size]
-            block_df = df[df[self.week_col].isin(sampled_block_weeks)].copy()
+            start = block_starts[idx] # Get the start index of the block.
+            sampled_block_weeks = train_weeks[start : start + self.block_size] # Get the weeks of the block.
+            block_df = df[df[self.week_col].isin(sampled_block_weeks)].copy() # Get the dataframe of the block.
             pieces.append(block_df)
 
-        return pd.concat(pieces, ignore_index=True)
+        return pd.concat(pieces, ignore_index=True) # Concatenate the blocks into a single dataframe.
