@@ -83,6 +83,7 @@ The temporal splitter ensures no future leakage: validation folds are always chr
 
 ## Project structure
 
+```text
 nn-elasticity/
 ├── data/                    # Processed CSVs and evaluation outputs
 ├── results/                 # Optuna DB, best hyperparameters, checkpoints
@@ -115,9 +116,11 @@ nn-elasticity/
 │   └── summarizer.py        # Bootstrap aggregation
 ├── eda/                     # Exploratory data analysis modules
 └── utils/                   # TemporalSplitter, BlockBootstrapSampler
+```
 
 ## Pipeline
 
+```text
 Dominick's raw CSVs (upcber.csv, wber.csv)
         │
         ▼
@@ -130,22 +133,23 @@ dominick_features.csv
 creation-dataset.ipynb
         │
         ▼
-elasticity_dataset.csv (store × UPC × week panel)
+elasticity_dataset.csv  (store × UPC × week panel)
         │
         ├──────────────────────────────┐
         ▼                              ▼
-hparam-search.ipynb               benchmark.ipynb
-nn_final_evaluation.ipynb         (pairwise OLS)
+hparam-search.ipynb           benchmark.ipynb
+nn_final_evaluation.ipynb     (pairwise OLS)
 (ICDN training + eval)
         │                              │
         ▼                              ▼
-nn_kfold_*.csv                   benchmark_*.csv
-nn_bootstrap_*.csv               benchmark_bootstrap*.csv
+nn_kfold_*.csv              benchmark_*.csv
+nn_bootstrap_*.csv          benchmark_bootstrap*.csv
         │                              │
         └──────────┬───────────────────┘
                    ▼
-         analysis-results.ipynb
-(generalization, stability, calibration)
+        analysis-results.ipynb
+        (generalization, stability, calibration)
+```
 
 ## Data
 
@@ -171,5 +175,7 @@ pip install -r requirements.txt
 
 
 ## Authors: 
+
 **Researchers**: Carlos Heredia, PhD & Daniel Roncel
+
 **Affiliation**: IAMMResearch
