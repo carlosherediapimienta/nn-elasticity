@@ -1,15 +1,17 @@
 from dataclasses import dataclass, field
 from typing import List
 
-
 @dataclass
-class ElasticityConfig:
-    csv_path: str
-    target_col: str = "log_liters_sold"
-    price_col: str = "log_price_per_liter"
-    cross_price_cols: List[str] = field(default_factory=list)
-
-    numeric_control_cols: List[str] = field(default_factory=lambda: [
+class BenchmarkConfig:
+    """Shared configuration for the pairwise OLS benchmark.
+    Attributes:
+        control_cols: RHS regressors added to every OLS fit beyond own/cross log-prices.
+        min_obs: Minimum number of clean training rows required to attempt a fit.
+        robust_cov_type: Heteroskedasticity-robust covariance estimator passed to
+            statsmodels (e.g. "HC1", "HC3").
+    """
+    # Control columns
+    control_cols: List[str] = field(default_factory=lambda: [
         "on_promo",
         "week_rank",
         "sin_52",
@@ -36,11 +38,9 @@ class ElasticityConfig:
         "promo_intensity_store_week",
     ])
 
-    store_col: str = "store_code"
-    upc_col: str = "upc_code"
-    category_col: str = "category_code"
-
-    include_category_fixed_effect: bool = False
-
-    robust_cov_type: str = "HC1"
+    # Model parameters
     min_obs: int = 30
+    # Robust covariance type. The OLS method assumes homoskedasticity (constant variance),
+    # and this is not always the case because we can have variability in each store-week. 
+    # So we use a robust estimator to account for heteroskedasticity.
+    robust_cov_type: str = "HC1"
