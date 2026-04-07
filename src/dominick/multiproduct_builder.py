@@ -1,10 +1,9 @@
 import pandas as pd
 from .multiproduct import (
-    PanelSelector,
-    CompleteObservationFilter,
-    MultiProductPivoter,
+    PanelSelector, 
+    CompleteObservationFilter, 
+    MultiProductPivoter, 
 )
-
 
 class MultiProductBuilder:
     """
@@ -13,12 +12,12 @@ class MultiProductBuilder:
     """
 
     def __init__(self, min_coverage: float = 0.5, min_products: int = 1):
-        self.selector = PanelSelector()
+        self.selector = PanelSelector() # Selects UPCs and stores
         self.filter   = CompleteObservationFilter(
             min_coverage=min_coverage,
             min_products=min_products,
-        )
-        self.pivoter = MultiProductPivoter()
+        ) # Filters UPCs and stores
+        self.pivoter = MultiProductPivoter() # Pivots the data to wide format
 
     def fit(
         self,
@@ -27,25 +26,23 @@ class MultiProductBuilder:
         upcs: list | None = None,
         stores: list | None = None,
     ) -> "MultiProductBuilder":
+
+        # Selects UPCs and stores
         self.selector.fit(df, n_upcs=n_upcs, upcs=upcs, stores=stores)
 
-        filtered = self.filter.run(
+        # Filters UPCs and stores
+        self.filtered = self.filter.run(
             df,
             self.selector.selected_upcs,
             self.selector.selected_stores,
         )
-        # El filtro puede reducir los UPCs (min_coverage); actualizamos
+        # The filter can reduce the UPCs (min_coverage); we update the selected UPCs
         self.selector.selected_upcs  = self.filter.valid_upcs
-        self.n = len(self.selector.selected_upcs)
+        self.n = len(self.selector.selected_upcs) 
         return self
 
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        filtered = self.filter.run(
-            df,
-            self.selector.selected_upcs,
-            self.selector.selected_stores,
-        )
-        return self.pivoter.run(filtered, self.selector.selected_upcs)
+    def transform(self) -> pd.DataFrame:
+        return self.pivoter.run(self.filtered, self.selector.selected_upcs)
 
     @property
     def selected_upcs(self) -> list:

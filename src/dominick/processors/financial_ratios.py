@@ -3,22 +3,30 @@ import pandas as pd
 
 class FinancialRatiosCalculator:
     """
-    Calcula ratios financieros: sales_dolar, unit_price, gross_margin, cost_dolar.
-    API pública: run().
+    Computes per-UPC financial metrics from raw Dominick's transaction data.
+    Derived columns added to the DataFrame:
+      - unit_price        : effective price per UPC within the deal (total_price / units_per_deal)
+      - sales_dolar       : corrected revenue (total_price x units_sold / units_per_deal)
+      - gross_margin_rate : gross margin as a fraction (gross_margin_pct / 100)
+      - gross_margin_dolar: absolute gross margin in dollars
+      - cost_dolar        : cost of goods sold (sales_dolar x (1 - gross_margin_rate))
+    Required input columns: total_price, units_sold, units_per_deal, gross_margin_pct.
+    Public API:
+        run(df) -> pd.DataFrame
     """
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        API pública. Añade columnas financieras.
-        Requiere: total_price, units_sold, units_per_deal, gross_margin_pct.
+        Public API. Adds financial columns.
+        Requires: total_price, units_sold, units_per_deal, gross_margin_pct.
         """
         out = df.copy()
         denom = out["units_per_deal"].replace({0: np.nan})
 
-        # Precio efectivo por UPC dentro del deal
+        # Effective price per UPC within the deal
         out["unit_price"] = (out["total_price"] / denom).round(2)
 
-        # Ventas $ correctas: Sales = Price * Move / Qty
+        # Correct sales: Sales = Price * Move / Qty
         out["sales_dolar"] = (out["total_price"] * out["units_sold"] / denom).round(2)
 
         out["gross_margin_rate"] = out["gross_margin_pct"] / 100.0

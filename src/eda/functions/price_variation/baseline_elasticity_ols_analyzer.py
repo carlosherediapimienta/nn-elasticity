@@ -5,10 +5,10 @@ from scipy import stats
 
 class BaselineElasticityOLSAnalyzer:
     """
-    Baseline OLS log-log: regresión de log(demanda) sobre log(precio).
-    - Naive (sin FE): elasticidad = coeficiente de log(precio).
-    - 2-way FE (store×UPC + week): double demeaning, luego OLS.
-    NO causal; útil como sanity check de magnitud.
+    Baseline OLS log-log: regression of log(demand) on log(price).
+    - Naive (without FE): elasticity = coefficient of log(price).
+    - 2-way FE (store×UPC + week): double demeaning, then OLS.
+    NO causal; useful as a sanity check of magnitude.
     Public API: run().
     """
 
@@ -23,20 +23,20 @@ class BaselineElasticityOLSAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) y columnas precio y demanda en log.
-            price_col: columna de precio en log.
-            demand_col: columna de demanda en log.
-            store_col, upc_col: para definir entidad (store×UPC).
-            week_col: columna de tiempo para FE temporales.
+            df: DataFrame with grain (store, upc, week) and price and demand columns in log.
+            price_col: price column in log.
+            demand_col: demand column in log.
+            store_col, upc_col: columns to define entity (store×UPC).
+            week_col: column for temporal FE.
 
         Returns:
-            dict con:
+            dict with:
                 - ols_naive: elasticity (slope), r_squared, n_obs, se, pvalue.
                 - ols_2way_fe: elasticity (slope), r_squared, n_obs, se, pvalue.
         """
         for col in [price_col, demand_col, store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         df_work = df[[store_col, upc_col, week_col, price_col, demand_col]].dropna(
             subset=[price_col, demand_col]
@@ -51,7 +51,7 @@ class BaselineElasticityOLSAnalyzer:
             x_naive, y_naive
         )
 
-        # --- 2-way FE: double demean por (store, upc) y por week ---
+        # --- 2-way FE: double demean by (store, upc) and by week ---
         entity = df_work[[store_col, upc_col]].astype(str).agg("_".join, axis=1)
         time_vals = df_work[week_col].values
 

@@ -4,9 +4,9 @@ import numpy as np
 
 class AggregatedTrendAnalyzer:
     """
-    Agrega el panel por semana y calcula la correlación de week_rank con
-    precio medio, demanda agregada y promo_rate para evaluar riesgo de
-    elasticidad espuria por tendencias temporales.
+    Aggregates the panel by week and calculates the correlation of week_rank with
+    mean price, aggregated demand and promo_rate to evaluate the risk of
+    spurious elasticity by temporal trends.
     Public API: run().
     """
 
@@ -19,29 +19,27 @@ class AggregatedTrendAnalyzer:
         promo_col: str = "on_promo",
     ) -> dict:
         """
-        Args:
-            df: DataFrame con grano (store, upc, week) y columnas de precio, demanda y promo.
-            time_col: columna de semana.
-            price_col: columna de precio en log (se agrega como media por semana).
-            demand_raw_col: columna de cantidad en nivel (litros); se suma por semana y se toma log.
-            promo_col: columna 0/1 de promo (se agrega como media = promo_rate).
+        Public API. Aggregates the panel by week and calculates the correlation of week_rank with
+        mean price, aggregated demand and promo_rate to evaluate the risk of
+        spurious elasticity by temporal trends.
 
         Returns:
-            dict con:
-                - correlations: dict con
+            dict with:
+                - correlations: dict with
                     * corr_week_rank_mean_log_price
                     * corr_week_rank_log_total_demand
                     * corr_week_rank_promo_rate
-                - aggregated_series: DataFrame con columnas
+                - aggregated_series: DataFrame with columns
                     * time_col
                     * week_rank (1, 2, ..., T)
-                    * mean_log_price
-                    * log_total_demand
-                    * promo_rate
+                    * mean_log_price: mean price by week
+                    * log_total_demand: aggregated demand by week
+                    * promo_rate: promo rate by week
         """
+        # Check if the columns are in the DataFrame.
         for col in [time_col, price_col, demand_raw_col, promo_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         agg = df.groupby(time_col).agg(
             mean_log_price=(price_col, "mean"),

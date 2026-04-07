@@ -15,26 +15,16 @@ class SplineBuilder:
     Public API: build_from_data().
     """
     
-    def __init__(
-        self,
-        stats_calc: StatisticsCalculator | None = None,
-        knot_gen: KnotGenerator | None = None
-    ):
-        """
-        Args:
-            stats_calc: custom statistics calculator (optional)
-            knot_gen: custom knot generator (optional)
-        """
-        self.stats_calc = stats_calc or StatisticsCalculator()
-        self.knot_gen = knot_gen or KnotGenerator()
+    def __init__(self):
+        self.stats_calc = StatisticsCalculator() # Statistics calculator
+        self.knot_gen = KnotGenerator() # Knot generator
     
     def build_from_data(
         self,
         data: np.ndarray,
         n_knots: int = 16,
         q_min: float = 0.05,
-        q_max: float = 0.95,
-        eps: float = 1e-6
+        q_max: float = 0.95
     ) -> dict:
         """
         Build spline configuration from training data.
@@ -44,7 +34,6 @@ class SplineBuilder:
             n_knots: number of knots to generate
             q_min: minimum quantile for knots
             q_max: maximum quantile for knots
-            eps: epsilon for std calculation
         
         Returns:
             dict with:
@@ -52,10 +41,10 @@ class SplineBuilder:
                 'mean': mean of the data
                 'std': standard deviation of the data
         """
-        # Calculate statistics
-        stats = self.stats_calc.compute_stats(data, eps=eps)
+        # Calculate statistics: mean and standard deviation.
+        stats = self.stats_calc.compute_stats(data)
         
-        # Generate knots
+        # Generate knots: positions of the knots.
         knots = self.knot_gen.generate_from_quantiles(
             data,
             n_knots=n_knots,

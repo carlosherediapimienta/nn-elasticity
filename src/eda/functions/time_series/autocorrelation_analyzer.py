@@ -6,14 +6,14 @@ from statsmodels.tsa.stattools import acf
 class AutocorrelationAnalyzer:
     """
     Calculates autocorrelation (ACF) for time series.
-    Single responsibility: measure temporal dependence.
+    Measures temporal dependence between values at different lags.
     Public API: run().
     """
     def run(self, time_series_df, value_col, max_lags=20):
         series = time_series_df[value_col].dropna()
 
         if len(series) == 0:
-            raise ValueError(f"La columna '{value_col}' no tiene valores no-NaN.")
+            raise ValueError(f"The column '{value_col}' has no non-NaN values.")
 
         n_original = len(time_series_df[value_col])
         n_clean = len(series)

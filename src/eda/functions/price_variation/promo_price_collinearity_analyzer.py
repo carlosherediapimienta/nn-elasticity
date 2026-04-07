@@ -4,11 +4,11 @@ import numpy as np
 
 class PromoPriceCollinearityAnalyzer:
     """
-    Analiza la relación entre precio y promo:
-    - Prevalencia y coherencia de flags de promo
-    - Diferencia de precio medio promo vs no promo
-    - Colinealidad log_price vs on_promo dentro de (store, upc)
-    - Proporción de cambios de precio ligados a cambios de promo
+    Analyzes the relationship between price and promo:
+    - Prevalence and consistency of promo flags
+    - Mean price difference between promo and no promo
+    - Collinearity of log_price vs on_promo within (store, upc)
+    - Proportion of price changes linked to promo changes
     Public API: run().
     """
 
@@ -27,26 +27,26 @@ class PromoPriceCollinearityAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) y columnas de precio/promo.
-            price_col: nombre de la columna de precio en log.
-            store_col, upc_col, week_col: columnas de grano.
-            on_promo_col: flag global de promo (0/1).
-            promo_*_col: flags específicos de tipo de promo (0/1).
-            price_change_tol: tolerancia absoluta para considerar que el precio cambia.
+            df: DataFrame with grain (store, upc, week) and price/promo columns.
+            price_col: price column in log.
+            store_col, upc_col, week_col: grain columns.
+            on_promo_col: global promo flag (0/1).
+            promo_*_col: specific promo type flags (0/1).
+            price_change_tol: absolute tolerance to consider that the price changes.
 
         Returns:
-            dict con:
-                - global_stats: métricas agregadas sobre promos y descuentos.
-                - per_series: DataFrame por (store, upc) con:
+            dict with:
+                - global_stats: aggregated metrics about promos and discounts.
+                - per_series: DataFrame by (store, upc) with:
                     * store_col, upc_col
-                    * n_obs
-                    * n_obs_promo, n_obs_no_promo
-                    * has_both_promo_states
-                    * mean_price_promo, mean_price_no_promo, price_promo_gap
-                    * corr_price_on_promo
-                    * n_price_changes
-                    * n_price_changes_with_promo_switch
-                    * share_changes_with_promo_switch
+                    * n_obs: number of observations
+                    * n_obs_promo, n_obs_no_promo: number of observations with promo and no promo
+                    * has_both_promo_states: bool, True if the series has both promo states
+                    * mean_price_promo, mean_price_no_promo, price_promo_gap: mean price with promo and no promo, price difference between promo and no promo
+                    * corr_price_on_promo: correlation between price and promo
+                    * n_price_changes: number of price changes
+                    * n_price_changes_with_promo_switch: number of price changes with promo switch
+                    * share_changes_with_promo_switch: share of price changes with promo switch
         """
         required_cols = [
             price_col, store_col, upc_col, week_col,
@@ -54,22 +54,22 @@ class PromoPriceCollinearityAnalyzer:
         ]
         for col in required_cols:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # Trabajo sobre copia mínima
+        # Work on minimal copy
         df_work = df[required_cols].copy()
 
-        # Normalizar flags a 0/1 (tratando NaN como 0)
+        # Normalize flags to 0/1 (treating NaN as 0)
         for c in [on_promo_col, promo_b_col, promo_s_col, promo_c_col]:
             df_work[c] = df_work[c].fillna(0).astype(int)
 
-        # --- Estadísticas globales de promos ---
+        # --- Global promo statistics ---
         n_rows = int(len(df_work))
         promo_b_share = float(df_work[promo_b_col].mean())
         promo_s_share = float(df_work[promo_s_col].mean())
         promo_c_share = float(df_work[promo_c_col].mean())
 
-        # Coherencia de on_promo y flags específicos
+        # Consistency of on_promo and specific promo flags
         any_promo = (
             (df_work[promo_b_col] == 1)
             | (df_work[promo_s_col] == 1)
@@ -84,8 +84,8 @@ class PromoPriceCollinearityAnalyzer:
         )
         promos_mutually_exclusive = bool((sum_promos <= 1).all())
 
-        # --- Diferencia de precio medio promo vs no promo (por serie) ---
-        # Filtramos filas con precio definido
+        # --- Mean price difference between promo and no promo (by series) ---
+        # Filter rows with defined price
         df_price = df[[store_col, upc_col, week_col, price_col, on_promo_col]].copy()
         df_price = df_price.dropna(subset=[price_col])
         df_price[on_promo_col] = df_price[on_promo_col].fillna(0).astype(int)
@@ -114,7 +114,7 @@ class PromoPriceCollinearityAnalyzer:
                 mean_price_no_promo = np.nan
                 price_promo_gap = np.nan
 
-            # Correlación precio–promo dentro de serie (solo si hay ambos estados)
+            # Correlation of price–promo within series (only if both states)
             if has_both and g[on_promo_col].nunique() > 1 and g[price_col].nunique() > 1:
                 corr = float(
                     g[[price_col, on_promo_col]].corr().iloc[0, 1]
@@ -122,7 +122,7 @@ class PromoPriceCollinearityAnalyzer:
             else:
                 corr = np.nan
 
-            # Cambios de precio y si coinciden con cambios de promo
+            # Price changes and if they coincide with promo changes
             g = g.sort_values(week_col)
             price_diff = g[price_col].diff().abs() > price_change_tol
             promo_switch = g[on_promo_col].diff().fillna(0) != 0
@@ -155,7 +155,7 @@ class PromoPriceCollinearityAnalyzer:
 
         per_series = pd.DataFrame(per_series_rows)
 
-        # Series con ambos estados de promo (para algunas métricas)
+        # Series with both promo states (for some metrics)
         mask_both = per_series["has_both_promo_states"]
         gaps_series = per_series.loc[mask_both, "price_promo_gap"].dropna()
 
@@ -170,7 +170,7 @@ class PromoPriceCollinearityAnalyzer:
             price_promo_gap_median = np.nan
             pct_series_promo_more_expensive = np.nan
 
-        # Correlación log_price – on_promo por serie
+        # Correlation of log_price – on_promo by series
         corr_series = per_series["corr_price_on_promo"].dropna()
         if corr_series.shape[0] > 0:
             corr_mean = float(corr_series.mean())
@@ -179,7 +179,7 @@ class PromoPriceCollinearityAnalyzer:
             corr_mean = np.nan
             corr_median = np.nan
 
-        # share_changes_with_promo_switch por serie
+        # share_changes_with_promo_switch by series
         share_series = per_series["share_changes_with_promo_switch"].dropna()
         if share_series.shape[0] > 0:
             share_p50 = float(share_series.quantile(0.50))

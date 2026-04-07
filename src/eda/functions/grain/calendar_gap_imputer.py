@@ -31,46 +31,46 @@ class CalendarGapImputer:
     ) -> pd.DataFrame:
         """
         Args:
-            df: DataFrame original (grano: store x upc x week, sin duplicados).
-            store_col: nombre columna de tienda.
-            upc_col: nombre columna de producto.
-            week_col: nombre columna de semana (int).
-            value_cols: columnas de valor temporal que se ponen a NaN en filas
-                        imputadas (ej. ["units_sold", "price", "promo"]).
-                        El resto de columnas no-grano se consideran descriptivas
-                        y se propagan desde una fila existente del mismo (store, upc).
-                        Si None, TODAS las columnas no-grano se ponen a NaN
-                        (comportamiento conservador).
-            global_gap_weeks: semanas globalmente faltantes en el dataset.
-                              Si None, se calculan automáticamente como las semanas
-                              del rango [week_min, week_max] sin ninguna fila.
+            df: DataFrame original (grain: store x upc x week, without duplicates).
+            store_col: store column.
+            upc_col: product column.
+            week_col: week column (int).
+            value_cols: temporal value columns that are set to NaN in imputed rows
+                        imputed (for example ["units_sold", "price", "promo"]).
+                        The rest of the non-grain columns are considered descriptive
+                        and are propagated from an existing row of the same (store, upc).
+                        If None, ALL non-grain columns are set to NaN
+                        (conservative behavior).
+            global_gap_weeks: global missing weeks in the dataset.
+                              If None, they are calculated automatically as the weeks
+                              in the range [week_min, week_max] without any rows.
 
         Returns:
-            DataFrame original + filas imputadas, ordenado por
-            (store_col, upc_col, week_col), con columnas adicionales:
+            DataFrame original + imputed rows, ordered by
+            (store_col, upc_col, week_col), with additional columns:
                 - is_imputed_calendar_row  (int 0/1)
                 - is_global_gap_week       (int 0/1)
                 - is_internal_gap          (int 0/1)
-                - gap_size_from_prev_obs   (int: nº de semanas del bloque de huecos)
-                - weeks_since_last_obs     (int: posición 1-indexed dentro del bloque)
+                - gap_size_from_prev_obs   (int: number of weeks in the gap block)
+                - weeks_since_last_obs     (int: 1-indexed position within the block)
         """
         grain_cols = [store_col, upc_col, week_col]
         for col in grain_cols:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # Determinar columnas de valor temporal y columnas estáticas descriptivas
+        # Determine temporal value columns and descriptive static columns
         non_grain_cols = [
             c for c in df.columns
             if c not in grain_cols and c not in self._FLAG_COLS
         ]
 
         if value_cols is None:
-            # Comportamiento conservador: todo va a NaN
+            # Conservative behavior: everything goes to NaN
             value_cols = non_grain_cols
             static_cols = []
         else:
-            # Solo las value_cols van a NaN; el resto son descriptivas y se propagan
+            # Only the value_cols go to NaN; the rest are descriptive and are propagated
             value_cols = [c for c in value_cols if c in df.columns]
             static_cols = [c for c in non_grain_cols if c not in value_cols]
 
@@ -83,7 +83,7 @@ class CalendarGapImputer:
         else:
             global_gap_weeks_set = set(int(w) for w in global_gap_weeks)
 
-        # --- Marcar filas originales con flags a 0 ---
+        # --- Mark original rows with flags to 0 ---
         df_out = df.copy()
         for flag in self._FLAG_COLS:
             df_out[flag] = 0
@@ -106,7 +106,7 @@ class CalendarGapImputer:
         )
         expected[week_col] = expected[week_col].astype(df[week_col].dtype)
 
-        # --- Encontrar combinaciones (store, upc, week) faltantes ---
+        # --- Find missing combinations (store, upc, week) ---
         existing = df[grain_cols].copy()
         existing["_exists"] = 1
         merged = expected.merge(existing, on=grain_cols, how="left")
@@ -119,7 +119,7 @@ class CalendarGapImputer:
         if missing.empty:
             return df_out.sort_values(grain_cols).reset_index(drop=True)
 
-        # --- Propagar columnas estáticas descriptivas desde (store, upc) ---
+        # --- Propagate descriptive static columns from (store, upc) ---
         if static_cols:
             static_lookup = (
                 df.groupby([store_col, upc_col])[static_cols]
@@ -128,11 +128,11 @@ class CalendarGapImputer:
             )
             missing = missing.merge(static_lookup, on=[store_col, upc_col], how="left")
 
-        # --- Poner a NaN las columnas de valor temporal ---
+        # --- Set the temporal value columns to NaN ---
         for col in value_cols:
             missing[col] = np.nan
 
-        # --- Análisis de bloques de huecos (vectorizado) ---
+        # --- Analysis of gap blocks (vectorized) ---
         missing = missing.sort_values(grain_cols).reset_index(drop=True)
 
         missing["_prev_week"] = (
@@ -160,7 +160,7 @@ class CalendarGapImputer:
         )
         missing = missing.drop(columns=["_prev_week", "_new_block", "_block_id"])
 
-        # --- Asignar flags de tipo de hueco ---
+        # --- Assign gap type flags ---
         missing["is_imputed_calendar_row"] = 1
         missing["is_global_gap_week"] = (
             missing[week_col].isin(global_gap_weeks_set).astype(int)
@@ -169,7 +169,7 @@ class CalendarGapImputer:
             (~missing[week_col].isin(global_gap_weeks_set)).astype(int)
         )
 
-        # --- Combinar filas originales + imputadas ---
+        # --- Combine original rows + imputed rows ---
         df_final = pd.concat([df_out, missing], ignore_index=True)
         df_final = df_final.sort_values(grain_cols).reset_index(drop=True)
         return df_final

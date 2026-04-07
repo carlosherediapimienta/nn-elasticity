@@ -3,11 +3,11 @@ import pandas as pd
 
 class StoreUpcCoverageAnalyzer:
     """
-    Analiza la cobertura por serie (store, upc):
-    - nº de semanas observadas (n_obs)
-    - span temporal activo (first_week..last_week)
-    - coverage_ratio dentro del span
-    - missing_within_span (huecos dentro del rango activo)
+    Analyzes the coverage by series (store, upc):
+    - number of observed weeks (n_obs)
+    - active temporal span (first_week..last_week)
+    - coverage_ratio within the span
+    - missing_within_span (missing weeks within the active span)
     Public API: run().
     """
 
@@ -20,45 +20,45 @@ class StoreUpcCoverageAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) sin duplicados.
-            store_col: nombre de la columna de tienda.
-            upc_col: nombre de la columna de producto/UPC.
-            week_col: nombre de la columna de semana (int).
+            df: DataFrame with grain (store, upc, week) without duplicates.
+            store_col: store column.
+            upc_col: product/UPC column.
+            week_col: week column (int).
 
         Returns:
-            dict con:
-                - per_series_coverage: DataFrame por (store, upc) con columnas
-                    * store_col
-                    * upc_col
-                    * first_week
-                    * last_week
-                    * n_obs                (nº de weeks observadas)
-                    * span_length_weeks    (last_week - first_week + 1)
-                    * coverage_ratio       (n_obs / span_length_weeks)
-                    * missing_within_span  (span_length_weeks - n_obs)
-                - summary_stats: dict con resúmenes de:
-                    * n_pairs
+            dict with:
+                - per_series_coverage: DataFrame with columns
+                    * store_col: store column
+                    * upc_col: product/UPC column
+                    * first_week: first week
+                    * last_week: last week
+                    * n_obs: number of observed weeks
+                    * span_length_weeks: span length in weeks
+                    * coverage_ratio: coverage ratio
+                    * missing_within_span: missing weeks within the span
+                - summary_stats: dict with summary statistics
+                    * n_pairs: number of pairs
                     * n_obs: mean, p25, p50, p75, p90
                     * coverage_ratio: mean, p25, p50, p75, p90
                     * missing_within_span: mean, p25, p50, p75, p90
         """
         for col in [store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # Agrupación por serie (store, upc)
+        # Grouping by series (store, upc)
         agg = (
             df.groupby([store_col, upc_col])[week_col]
             .agg(first_week="min", last_week="max", n_obs="nunique")
             .reset_index()
         )
 
-        # Span activo y métricas de cobertura
+        # Active span and coverage metrics
         agg["span_length_weeks"] = (
             agg["last_week"].astype(int) - agg["first_week"].astype(int) + 1
         )
 
-        # Evitar divisiones raras si span_length_weeks <= 0 (defensivo)
+        # Avoid rare divisions if span_length_weeks <= 0 (defensive)
         valid_span = agg["span_length_weeks"] > 0
         agg.loc[valid_span, "coverage_ratio"] = (
             agg.loc[valid_span, "n_obs"] / agg.loc[valid_span, "span_length_weeks"]
@@ -67,7 +67,7 @@ class StoreUpcCoverageAnalyzer:
 
         agg["missing_within_span"] = agg["span_length_weeks"] - agg["n_obs"]
 
-        # Resúmenes
+        # Summaries
         n_pairs = int(agg.shape[0])
 
         def _q(series: pd.Series, q: float) -> float:

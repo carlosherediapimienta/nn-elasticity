@@ -14,3 +14,10 @@ scikit-learn>=1.3.0
 
 # Deep learning
 torch>=2.0.0
+
+# Hyperparameter optimization
+optuna>=3.6.0
+
+# Jupyter
+ipykernel>=6.0.0
+notebook>=7.0.0

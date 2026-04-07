@@ -3,8 +3,8 @@ import pandas as pd
 
 class PriceVariationAnalyzer:
     """
-    Analiza la variación de precio dentro de cada serie (store, upc) para
-    evaluar identificabilidad práctica de elasticidad (propia).
+    Analyzes the price variation within each series (store, upc) to
+    evaluate the practical identifiability of elasticity (own).
     Public API: run().
     """
 
@@ -19,19 +19,19 @@ class PriceVariationAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) y columna de precio.
-            price_col: columna de precio en log (ej. log_price_per_liter).
-            store_col, upc_col, week_col: columnas de grano.
-            price_round_decimals: decimales para redondear al contar niveles.
+            df: DataFrame with grain (store, upc, week) and price column.
+            price_col: price column in log (e.g. log_price_per_liter).
+            store_col, upc_col, week_col: grain columns.
+            price_round_decimals: number of decimals to round when counting price levels.
 
         Returns:
-            dict con per_series (DataFrame por store, upc) y summary_stats
+            dict with per_series (DataFrame by store, upc) and summary_stats
             (n_pairs, n_constant_price_series, pct_constant_price_series,
-             cuantiles de n_price_levels, n_price_changes, price_range_log).
+             quantiles of n_price_levels, n_price_changes, price_range_log).
         """
         for col in [price_col, store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         df_work = df[[store_col, upc_col, week_col, price_col]].copy()
         df_work = df_work.dropna(subset=[price_col, week_col])

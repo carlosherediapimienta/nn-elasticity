@@ -1,11 +1,10 @@
 import pandas as pd
 from typing import Iterable, Optional
 
-
 class DatasetCoverageAnalyzer:
     """
-    Calcula dimensiones básicas del dataset y cobertura temporal (weeks)
-    incluyendo semanas faltantes globales.
+    Calculates basic dimensions of the dataset and temporal coverage (weeks)
+    including global missing weeks.
     Public API: run().
     """
 
@@ -19,15 +18,15 @@ class DatasetCoverageAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con los datos.
-            store_col: nombre de la columna de tienda.
-            upc_col: nombre de la columna de producto/UPC.
-            week_col: nombre de la columna temporal (semana).
-            expected_weeks: iterable de IDs de semana esperados. Si es None,
-                            se usa el rango completo [week_min, week_max].
+            df: DataFrame with the data.
+            store_col: store column.
+            upc_col: product/UPC column.
+            week_col: temporal column (week).
+            expected_weeks: iterable of expected week IDs. If None,
+                            the full range [week_min, week_max] is used.
 
         Returns:
-            dict con, por ejemplo:
+            dict with:
                 - n_rows
                 - n_stores
                 - n_upcs
@@ -37,11 +36,11 @@ class DatasetCoverageAnalyzer:
                 - n_expected_weeks
                 - n_missing_weeks
                 - pct_missing_weeks
-                - weeks_missing (lista ordenada)
+                - weeks_missing (sorted list)
         """
         for col in [store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         n_rows = int(len(df))
         n_stores = int(df[store_col].nunique(dropna=True))
@@ -49,7 +48,7 @@ class DatasetCoverageAnalyzer:
 
         week_series = df[week_col].dropna()
         if week_series.empty:
-            raise ValueError(f"No hay valores no nulos en la columna de semanas '{week_col}'.")
+            raise ValueError(f"No non-NaN values in the week column '{week_col}'.")
 
         week_min = int(week_series.min())
         week_max = int(week_series.max())

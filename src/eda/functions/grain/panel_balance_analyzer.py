@@ -3,8 +3,8 @@ import pandas as pd
 
 class PanelBalanceAnalyzer:
     """
-    Analiza si el panel está balanceado y calcula su densidad
-    respecto al panel completo hipotético (stores × upcs × weeks).
+    Analyzes if the panel is balanced and calculates its density
+    relative to the hypothetical full panel (stores × upcs × weeks).
     Public API: run().
     """
 
@@ -17,28 +17,28 @@ class PanelBalanceAnalyzer:
     ) -> dict:
         """
         Args:
-            df: DataFrame con grano (store, upc, week) sin duplicados.
-            store_col: nombre de la columna de tienda.
-            upc_col: nombre de la columna de producto/UPC.
-            week_col: nombre de la columna de semana.
+            df: DataFrame with grain (store, upc, week) without duplicates.
+            store_col: store column.
+            upc_col: product/UPC column.
+            week_col: week column.
 
         Returns:
-            dict con, por ejemplo:
+            dict with:
                 - n_rows: filas reales en el dataset
-                - n_stores: nº de stores distintos
-                - n_upcs: nº de UPCs distintos
-                - n_weeks: nº de weeks observadas (únicas)
-                - n_full_panel: tamaño del panel completo hipotético
+                - n_stores: number of distinct stores
+                - n_upcs: number of distinct UPCs
+                - n_weeks: number of observed weeks (unique)
+                - n_full_panel: size of the hypothetical full panel
                                 = n_stores × n_upcs × n_weeks
-                - density: densidad en [0,1]
-                - density_pct: densidad en %
-                - n_missing_cells: celdas ausentes respecto al panel completo
-                - pct_missing_cells: % de celdas ausentes
-                - is_perfect_full_panel: True si el panel está totalmente lleno
+                - density: density in [0,1]
+                - density_pct: density in %
+                - n_missing_cells: missing cells relative to the full panel
+                - pct_missing_cells: % of missing cells
+                - is_perfect_full_panel: True if the panel is completely full
         """
         for col in [store_col, upc_col, week_col]:
             if col not in df.columns:
-                raise ValueError(f"Columna '{col}' no encontrada en el DataFrame.")
+                raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
         n_rows = int(len(df))
         n_stores = int(df[store_col].nunique(dropna=True))
