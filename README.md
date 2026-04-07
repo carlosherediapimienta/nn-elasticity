@@ -57,20 +57,6 @@ Classical demand estimation fits separate regressions per product pair, yielding
 
 **`ICDN`** (Integrable Context-Dependent Demand Network) orchestrates the full forward pass: context embeddings, spline evaluation, and the integrable demand head.
 
-## Loss function
-
-$$
-\mathcal{L}
-=
-\underbrace{\text{Huber}(\hat{y}, y)}_{\text{fit}}
-+
-\lambda_s \underbrace{\mathbb{E}\left[\left(\frac{\partial^2 \hat{y}_i}{\partial x_i^2}\right)^2\right]}_{\text{smoothness}}
-+
-\lambda_p \underbrace{\mathbb{E}\left[\max(0,\hat{\varepsilon}_i)\right]}_{\text{positivity penalty}}
-$$
-
-The smoothness term regularizes curvature of the demand surface in price space. The positivity penalty encodes the economic prior that own-price elasticities should be negative (downward-sloping demand).
-
 ## Evaluation framework
 
 | Dimension | Method | Data source |
