@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from ..context import ContextMLP
+from ..context import SharedProductEncoder
 from ..heads import DemandParameterHead, DemandCalculator
 
 
@@ -9,7 +9,7 @@ class IntegrableDemandHead(nn.Module):
     Multiproduct demand head derived from an integrable scalar potential.
 
     Delegation:
-    - ContextMLP:           encodes context c to h
+    - SharedProductEncoder: encodes context c to h
     - DemandParameterHead:  produces b, beta, w, u from h
     - DemandCalculator:     computes y_hat, eps_hat, E
 
@@ -30,10 +30,10 @@ class IntegrableDemandHead(nn.Module):
         super().__init__()
 
         # Build the context MLP.
-        self.ctx = ContextMLP(
+        self.encoder = SharedProductEncoder(
             context_dim, hidden=hidden, act=act, dropout=dropout
         )
-        H = self.ctx.out_dim # Hidden dimension of the context MLP.
+        H = self.encoder.out_dim # Hidden dimension of the shared product encoder.
 
         # Build the demand parameter head for the parameters b, beta, w, u.
         # It will output a tensor of shape (B, n) for b, (B, n) for beta,
@@ -52,7 +52,7 @@ class IntegrableDemandHead(nn.Module):
 
     def run(
         self,
-        c: torch.Tensor,
+        tokens: torch.Tensor,
         x: torch.Tensor,
         Bx: torch.Tensor,
         dBx: torch.Tensor,
@@ -60,10 +60,10 @@ class IntegrableDemandHead(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
         # ── Step 1: Compute the latent representation h from the context c.
-        # The context c is a tensor of shape (B, context_dim).
-        # The latent representation h is a tensor of shape (B, hidden_dim).
-        # We use the context MLP to compute the latent representation h.
-        h      = self.ctx(c)
+        # The context c is a tensor of shape (B, n, d_token).
+        # The latent representation h is a tensor of shape (B, n, H).
+        # We use the shared product encoder to compute the latent representation h.
+        h      = self.encoder(tokens)
 
         # ── Step 2: Compute the parameters b, beta, w, u from the latent representation h.
         # The parameters b, beta, w, u are a tensor of shape (B, n) for b,

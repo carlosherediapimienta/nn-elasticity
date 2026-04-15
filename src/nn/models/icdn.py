@@ -43,15 +43,15 @@ class ICDN(nn.Module):
         self.n = n # Number of products
 
     def run(self, batch, return_parts: bool = False, compute_E: bool = False):
-        # (B, out_dim) - Context vector.
-        c = self.context_builder(batch)
+        # (B, n, d_token) - Context vector.
+        tokens = self.context_builder(batch)
         # (B, n) - Price vector. 
         x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
         # Compute the spline bases, derivatives, and antiderivatives.
         Bx, dBx, ddBx = self.price_splines(x) 
         # Compute the predicted demand and elasticity.
         y_hat, eps_hat, aux = self.head.run(
-            c=c,
+            tokens=tokens,
             x=x,
             Bx=Bx,
             dBx=dBx,
@@ -59,7 +59,7 @@ class ICDN(nn.Module):
         )
 
         if return_parts:
-            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx})
+            aux.update({"tokens": tokens, "Bx": Bx, "dBx": dBx, "ddBx": ddBx})
             return y_hat, eps_hat, aux
 
         return y_hat, eps_hat

@@ -38,14 +38,14 @@ class DemandParameterHead(nn.Module):
         self.n_cross = (n * (n - 1)) if use_cross else 0 # number of cross-price terms
 
         # We build the heads for the parameters.
-        self.head_b    = nn.Linear(hidden_dim, n) # b: intercept per product - (B, n)
-        self.head_beta = nn.Linear(hidden_dim, n) # beta: linear own-price coefficient - (B, n)
-        self.head_w    = nn.Linear(hidden_dim, n * K_splines) # w: own-price spline weights - (B, n, K)
+        self.head_b    = nn.Linear(hidden_dim, 1) # b: intercept per product - (B, 1)
+        self.head_beta = nn.Linear(hidden_dim, 1) # beta: linear own-price coefficient - (B, 1)
+        self.head_w    = nn.Linear(hidden_dim, K_splines) # w: own-price spline weights - (B, n, K)
         if use_cross:
-            # alpha: cross-price coefficient per pair (j \neq i) - (B, n_cross)
-            self.head_alpha = nn.Linear(hidden_dim, self.n_cross)
-            # u: cross-price weight tensor per pair (j \neq i) - (B, n_cross, K, K)
-            self.head_cross = nn.Linear(hidden_dim, self.n_cross * K_splines * K_splines) 
+            # alpha: cross-price coefficient per pair (j \neq i) - (B, 1)
+            self.head_alpha = nn.Linear(2 * hidden_dim, 1)
+            # u: cross-price weight tensor per pair (j \neq i) - (B, 1, K, K)
+            self.head_cross = nn.Linear(2 *hidden_dim, K_splines * K_splines) 
 
         # enforce_negative_beta constrains the linear price coefficient to be negative 
         # (FMCG Theory), which prevents non-physical demand curves during early training (phase 0).
@@ -94,11 +94,14 @@ class DemandParameterHead(nn.Module):
         self.register_buffer('_pairs', idx)
 
     def run(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
-        B = h.shape[0] # Number of samples in the batch, coming from the latten representation h.
+        # Number of samples in the batch, coming from the latten representation h.
+        # Number of products, coming from the latten representation h.
+        # Hidden dimension, coming from the latten representation h.
+        B, n, H = h.shape 
         K = self.K_splines # Number of splines.
 
-        b        = self.head_b(h) # b: intercept per product - (B, n)
-        beta_raw = self.head_beta(h) # beta: linear own-price coefficient - (B, n)
+        b        = self.head_b(h).squeeze(-1) # b: intercept per product - (B, n)
+        beta_raw = self.head_beta(h).squeeze(-1) # beta: linear own-price coefficient - (B, n)
         # -------------------------- IMPORTANT --------------------------
         # softplus(x) = log(1 + exp(x)) is always positive, so -softplus(beta_raw)
         # is always negative - this enforces the prior that own-price coefficients
@@ -112,12 +115,17 @@ class DemandParameterHead(nn.Module):
         # price effect. The spline weights w also contribute to the slope, so even
         # when beta approximately 0 the model can still capture price sensitivity via the splines.
         beta     = -F.softplus(beta_raw) if self.enforce_negative_beta else beta_raw
-        w        = self.head_w(h).view(B, self.n, K) # w: own-price spline weights - (B, n, K)
+        w        = self.head_w(h)  # w: own-price spline weights - (B, n, K)
 
         if self.use_cross:
-            alpha = self.head_alpha(h) # alpha: cross-price coefficient per pair (i!=j) - (B, n_cross)
+            i_idx, j_idx = self._pairs[0], self._pairs[1] # (n_cross,)
+            h_i = h[:, i_idx, :] # (B, n_cross, H)
+            h_j = h[:, j_idx, :] # (B, n_cross, H) 
+            h_ij = torch.cat([h_i, h_j], dim=-1) # (B, n_cross, 2*H)
+
+            alpha = self.head_alpha(h_ij).squeeze(-1) # alpha: cross-price coefficient per pair (i!=j) - (B, n_cross)
             # u: cross-price weight tensor per pair (i!=j) - (B, n_cross, K, K)
-            u = self.head_cross(h).view(B, self.n_cross, K, K) 
+            u = self.head_cross(h_ij).view(B, self.n_cross, K, K) 
         else:
             # Empty tensor of shape (B, 0).
             alpha = torch.empty(B, 0, device=h.device, dtype=h.dtype)
