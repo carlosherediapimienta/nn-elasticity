@@ -14,8 +14,8 @@ class ICDN(nn.Module):
     Pipeline:
       c                            = context_builder(batch)          # (B, context_dim)
       x                            = stack(log_price_0..n-1)         # (B, n)
-      Bx, dBx, ddBx, dddBx, IBx   = price_splines(x)               # (B, n, K) each
-      y_hat, eps_hat               = head(c, x, Bx, dBx, ddBx, IBx) # (B, n) each
+      Bx, dBx                      = price_splines(x)               # (B, n, K) each
+      y_hat, eps_hat               = head(c, x, Bx, dBx, alpha, u, pairs) # (B, n) each
     Args:
         context_builder (nn.Module): produces the context vector c.
         price_splines   (MultiCubicSplineBasis): vectorized spline evaluator.
@@ -48,20 +48,18 @@ class ICDN(nn.Module):
         # (B, n) - Price vector. 
         x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
         # Compute the spline bases, derivatives, and antiderivatives.
-        Bx, dBx, ddBx, dddBx, IBx = self.price_splines(x) 
+        Bx, dBx, ddBx = self.price_splines(x) 
         # Compute the predicted demand and elasticity.
         y_hat, eps_hat, aux = self.head.run(
             c=c,
             x=x,
             Bx=Bx,
             dBx=dBx,
-            ddBx=ddBx,
-            IBx=IBx,
             return_E=compute_E,
         )
 
         if return_parts:
-            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx, "dddBx": dddBx, "IBx": IBx})
+            aux.update({"c": c, "Bx": Bx, "dBx": dBx, "ddBx": ddBx})
             return y_hat, eps_hat, aux
 
         return y_hat, eps_hat

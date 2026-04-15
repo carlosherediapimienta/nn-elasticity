@@ -44,13 +44,11 @@ class ElasticityLoss(nn.Module):
         y_hat: torch.Tensor,     # (B, n)
         y_true: torch.Tensor,    # (B, n)
         eps_hat: torch.Tensor,   # (B, n)
-        obs_mask: torch.Tensor,  # (B, n)  ← nuevo
+        obs_mask: torch.Tensor,  # (B, n)
         w: torch.Tensor,         # (B, n, K)
         ddBx: torch.Tensor,      # (B, n, K)
-        dddBx: torch.Tensor,     # (B, n, K)
         u: torch.Tensor,         # (B, n_cross, K, K)
         Bx: torch.Tensor,        # (B, n, K)
-        IBx: torch.Tensor,       # (B, n, K)
         pairs: torch.Tensor,     # (2, n_cross)
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
@@ -63,7 +61,7 @@ class ElasticityLoss(nn.Module):
 
         # 2. Smoothness penalty - regularization penalty that discourages highly curved demand curves.
         if self.lambda_smooth > 0.0:
-            loss_smooth = self.smoothness_penalty.run(w, ddBx, dddBx, u, Bx, IBx, pairs)
+            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, pairs)
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 

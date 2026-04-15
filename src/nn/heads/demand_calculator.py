@@ -15,8 +15,7 @@ class DemandCalculator:
         x: torch.Tensor,       # (B, n)
         Bx: torch.Tensor,      # (B, n, K)
         dBx: torch.Tensor,     # (B, n, K)
-        ddBx: torch.Tensor,    # (B, n, K)
-        IBx: torch.Tensor,     # (B, n, K)
+        alpha: torch.Tensor,   # (B, n_cross)
         u: torch.Tensor,       # (B, n_cross, K, K)
         pairs: torch.Tensor,   # (2, n_cross)
         return_E: bool = False,
@@ -66,22 +65,22 @@ class DemandCalculator:
         Bx_j   = Bx[:,  j_idx, :]
         dBx_i  = dBx[:, i_idx, :]
         dBx_j  = dBx[:, j_idx, :]
-        ddBx_j = ddBx[:,j_idx, :]
-        IBx_i  = IBx[:, i_idx, :]
+        x_i    = x[:, i_idx]
+        x_j    = x[:, j_idx]
 
         # -- THEORY IMPLEMENTATION: See Article ────────────────────────────────────
 
-        # y_i  += Σ_{k,l} u_{p,k,l} * B_k(x_i)  * B_l(x_j)
-        contrib_yi = torch.einsum('bpk,bpkl,bpl->bp', Bx_i,  u, Bx_j).to(Bx.dtype)
+        # y_i += α_ij · x_i · x_j  +  B(x_i)^T U^{(ij)} B(x_j)
+        contrib_yi = (
+             alpha * x_i * x_j
+             + torch.einsum('bpk,bpkl,bpl->bp', Bx_i,  u, Bx_j)
+        ).to(Bx.dtype)
 
-        # y_j  += Σ_{k,l} u_{p,k,l} * Ψ_k(x_i)  * B'_l(x_j)
-        contrib_yj = torch.einsum('bpk,bpkl,bpl->bp', IBx_i, u, dBx_j).to(Bx.dtype)
-
-        # eps_i += Σ_{k,l} u_{p,k,l} * B'_k(x_i) * B_l(x_j)
-        contrib_ei = torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j).to(Bx.dtype)
-
-        # eps_j += Σ_{k,l} u_{p,k,l} * Ψ_k(x_i)  * B''_l(x_j)
-        contrib_ej = torch.einsum('bpk,bpkl,bpl->bp', IBx_i, u, ddBx_j).to(Bx.dtype)
+        #  E_{ii} += α_ij · x_j  +  B'(x_i)^T U^{(ij)} B(x_j)
+        contrib_ei = (
+            alpha * x_j
+            + torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j)
+        ).to(Bx.dtype)
 
         # Recall that: .einsum() is a way to perform a sum of products of tensors.
         # For instance, if we have:
@@ -111,7 +110,6 @@ class DemandCalculator:
         # j_idx.unsqueeze(0).expand(B, -1) = [[1, 2, 2], [1, 2, 2]]
         # because B = 2.
         i_exp = i_idx.unsqueeze(0).expand(B, -1) # (B, n_cross)
-        j_exp = j_idx.unsqueeze(0).expand(B, -1) # (B, n_cross)
 
         # Now, for instance:
         # contrib_yi = [[0.1, 0.2, 0.3],  
@@ -136,9 +134,7 @@ class DemandCalculator:
         #          [4.0 + 0.4 + 0.5,  5.0 + 0.6,  6.0]]    # sample 1
         #        = [[1.3,  2.3,  3.0], [4.9,  5.6,  6.0]]
         y_hat   = y_hat.scatter_add(1, i_exp, contrib_yi)
-        y_hat   = y_hat.scatter_add(1, j_exp, contrib_yj)
         eps_hat = eps_hat.scatter_add(1, i_exp, contrib_ei)
-        eps_hat = eps_hat.scatter_add(1, j_exp, contrib_ej)
 
         # ── Elasticity matrix E[b, i, j] = \partial y_i / \partial x_j ────────────────────────
         if return_E:
@@ -147,12 +143,14 @@ class DemandCalculator:
             # Diagonal: own-price
             E[:, torch.arange(n), torch.arange(n)] = eps_hat
 
-            # Off-diagonal: cross-price  E_{ij} = Σ_{k,l} u_{p,k,l} * B_k(x_i) * B'_l(x_j)
-            E_cross = torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)   # (B, n_cross)
+            # Off-diagonal: cross-price  E_{ij} = α_ij · x_i  +  B(x_i)^T U^{(ij)} dBx_j
+            E_cross = (
+                alpha * x_i
+                + torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)
+            ).to(E.dtype)  # (B, n_cross)
             # Symmetry E_{ij} = E_{ji} holds exactly by construction,
             # so both triangles of E share the same values.
-            E[:, i_idx, j_idx] = E_cross.to(E.dtype)
-            E[:, j_idx, i_idx] = E_cross.to(E.dtype)
+            E[:, i_idx, j_idx] = E_cross
         else:
             E = None
 

@@ -24,13 +24,11 @@ class SmoothnessPenalty:
         self,
         w: torch.Tensor,      # (B, n, K)
         ddBx: torch.Tensor,   # (B, n, K)
-        dddBx: torch.Tensor,  # (B, n, K)
         u: torch.Tensor,      # (B, n_cross, K, K)
         Bx: torch.Tensor,     # (B, n, K)
-        IBx: torch.Tensor,    # (B, n, K)
         pairs: torch.Tensor,  # (2, n_cross)
     ) -> torch.Tensor:
         # Compute the curvature of the demand curve.
-        kappa = self.curvature_calc.run(w, ddBx, dddBx, u, Bx, IBx, pairs)  # (B, n)
+        kappa = self.curvature_calc.run(w, ddBx, u, Bx, pairs)  # (B, n)
         # Return the mean of the squared curvature.
         return (kappa ** 2).mean()

@@ -56,8 +56,6 @@ class IntegrableDemandHead(nn.Module):
         x: torch.Tensor,
         Bx: torch.Tensor,
         dBx: torch.Tensor,
-        ddBx: torch.Tensor,
-        IBx: torch.Tensor,
         return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
@@ -87,8 +85,7 @@ class IntegrableDemandHead(nn.Module):
             x=x,
             Bx=Bx,
             dBx=dBx,
-            ddBx=ddBx,
-            IBx=IBx,
+            alpha=params['alpha'],
             u=params['u'],
             pairs=params['pairs'],
             return_E=return_E,
