@@ -28,7 +28,7 @@ class CompetitiveFeatureGenerator:
     """
 
     GROUP = ["store_code", "week_id", "category_code"]
-
+    
     def __init__(self):
         self.active_min_units = 0
 

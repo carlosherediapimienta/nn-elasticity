@@ -20,7 +20,13 @@ _PER_PRODUCT_COLS = [
     "miss_roll_4", "miss_roll_8", "miss_roll_13",
     "weeks_seen_upc", "weeks_seen_store_upc",
     "liters_per_upc",
-] 
+    # competitive features
+    "n_active_neighbors",
+    "nb_wmean_price", "nb_min_price", "nb_promo_share",
+    "price_gap_mean", "price_gap_cheap",
+    "miss_nb_wmean_price", "miss_nb_min_price",
+    "miss_price_gap_mean", "miss_price_gap_cheap",
+]
 
 class ProductTokenBuilder(nn.Module):
     """
@@ -46,6 +52,10 @@ class ProductTokenBuilder(nn.Module):
         n: int,
         n_stores: int,
         d_store: int = 24,
+        n_brands: int = 1,
+        d_brand: int = 8,
+        n_styles: int = 1,
+        d_style: int = 8,
     ):
         """
         Args:
@@ -55,7 +65,7 @@ class ProductTokenBuilder(nn.Module):
         """
         super().__init__()
         self.n = n
-        # Building the store embedding.
+        # Building the store embedding and the brand and style embeddings.
         # Recall that:
         # raw store_code:  101, 205, 312
         # ---- ColumnEncoder.factorize() ----
@@ -65,6 +75,14 @@ class ProductTokenBuilder(nn.Module):
         # row 1 → embedding of store 205
         # row 2 → embedding of store 312
         self.emb_store = nn.Embedding(n_stores, d_store)
+        # Building the brand and style embeddings.
+        # Recall that: 
+        # +1 is to preserve the 0 index for the unknown brand and style.
+        # padding_idx=0 is to map this token to the padding.
+        self.emb_brand = nn.Embedding(n_brands + 1, d_brand, padding_idx=0)
+        self.emb_style = nn.Embedding(n_styles + 1, d_style, padding_idx=0)
+        self.d_brand   = d_brand
+        self.d_style   = d_style
 
     @property
     def d_token(self) -> int:
@@ -72,7 +90,9 @@ class ProductTokenBuilder(nn.Module):
             self.emb_store.embedding_dim +  # d_store
             len(_TIME_COLS) +               # 7
             len(_PROMO_COLS) +              # 2
-            len(_PER_PRODUCT_COLS)          # 15
+            self.d_brand +                  # d_brand
+            self.d_style +                  # d_style
+            len(_PER_PRODUCT_COLS)          # 25 (15 + 10 competitive)
         )
 
     def forward(self, batch: dict) -> torch.Tensor:
@@ -106,10 +126,13 @@ class ProductTokenBuilder(nn.Module):
         # tokens per-product
         tokens = []
         for i in range(self.n):
+            # .long() is to convert the brand and style to integers (not floats).
+            e_brand = self.emb_brand(batch[f"brand_{i}"].long())  # (B, d_brand)
+            e_style = self.emb_style(batch[f"style_{i}"].long())  # (B, d_style)
             per_i = torch.stack(
                 [batch[f"{col}_{i}"] for col in _PER_PRODUCT_COLS], dim=1
             ) # (B, len(_PER_PRODUCT_COLS)) or (B, 15) for example
-            token_i = torch.cat([global_ctx, per_i], dim=1) # (B, d_token)
+            token_i = torch.cat([global_ctx, e_brand, e_style, per_i], dim=1)
             tokens.append(token_i)
 
         # Concatenate all the features.
