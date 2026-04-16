@@ -32,7 +32,20 @@ class MultiProductDataset(Dataset):
         "miss_roll_4", "miss_roll_8", "miss_roll_13",
         "weeks_seen_upc", "weeks_seen_store_upc",
         "liters_per_upc",
+        # competitive features
+        "n_active_neighbors",
+        "nb_wmean_price",
+        "nb_min_price",
+        "nb_promo_share",
+        "price_gap_mean",
+        "price_gap_cheap",
+        "miss_nb_wmean_price",
+        "miss_nb_min_price",
+        "miss_price_gap_mean",
+        "miss_price_gap_cheap",
     ]
+
+    PER_PRODUCT_CAT_COLS = ["brand", "style"] # categorical features
 
     def __init__(self, df: pd.DataFrame, n: int):
         self.n = n # Number of products
@@ -54,9 +67,12 @@ class MultiProductDataset(Dataset):
         for i in range(self.n):
             t[f"log_price_{i}"]  = torch.tensor(df[f"log_price_{i}"].values,  dtype=torch.float32)
             t[f"log_liters_{i}"] = torch.tensor(df[f"log_liters_{i}"].values, dtype=torch.float32)
-            t[f"obs_mask_{i}"]   = torch.tensor(df[f"obs_mask_{i}"].values,   dtype=torch.float32) # 1.0 where demand was observed, else 0.0.
+            t[f"obs_mask_{i}"]   = torch.tensor(df[f"obs_mask_{i}"].values,   dtype=torch.float32)
             for col in self.PER_PRODUCT_COLS:
                 t[f"{col}_{i}"] = torch.tensor(df[f"{col}_{i}"].values, dtype=torch.float32)
+            for col in self.PER_PRODUCT_CAT_COLS:
+                if f"{col}_{i}" in df.columns:
+                    t[f"{col}_{i}"] = torch.tensor(df[f"{col}_{i}"].values, dtype=torch.long)
 
         self.tensors = t # Dictionary with the tensors
         self._len    = len(df) # Number of samples in the dataset

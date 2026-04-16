@@ -28,25 +28,24 @@ class LiterMetricsCalculator:
         Public API. Adds volume metrics.
         Requires: total_price, units_sold, units_per_deal, pack_size_text.
         """
-        out = df.copy()
-        denom = out["units_per_deal"].replace({0: np.nan})
+        denom = df["units_per_deal"].replace({0: np.nan})
 
-        if liters_col not in out.columns:
+        if liters_col not in df.columns:
             # Convert pack_size_text to liters per UPC.
-            out[liters_col] = out[size_col].apply(self.unit_converter.run)
+            df[liters_col] = df[size_col].apply(self.unit_converter.run)
 
         # Effective price per UPC.
-        out["price_per_upc"] = out["total_price"] / denom
+        df["price_per_upc"] = df["total_price"] / denom
         # Total liters sold.
-        out["liters_sold"] = out["units_sold"] * out[liters_col]
-        out["price_per_liter"] = out["price_per_upc"] / out[liters_col]
+        df["liters_sold"] = df["units_sold"] * df[liters_col]
+        df["price_per_liter"] = df["price_per_upc"] / df[liters_col]
 
-        if "sales_dolar" not in out.columns:
-            out["sales_dolar"] = out["total_price"] * out["units_sold"] / denom
+        if "sales_dolar" not in df.columns:
+            df["sales_dolar"] = df["total_price"] * df["units_sold"] / denom
 
         # Rounding.
-        out["price_per_upc"] = out["price_per_upc"].round(4)
-        out["price_per_liter"] = out["price_per_liter"].round(4)
-        out["liters_sold"] = out["liters_sold"].round(6)
-        out[liters_col] = out[liters_col].round(6)
-        return out
+        df["price_per_upc"] = df["price_per_upc"].round(4)
+        df["price_per_liter"] = df["price_per_liter"].round(4)
+        df["liters_sold"] = df["liters_sold"].round(6)
+        df[liters_col] = df[liters_col].round(6)
+        return df
