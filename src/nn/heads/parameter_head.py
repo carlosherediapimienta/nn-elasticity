@@ -93,12 +93,15 @@ class DemandParameterHead(nn.Module):
         # We register the pairs as a buffer.
         self.register_buffer('_pairs', idx)
 
-    def run(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
+    def run(self, h: torch.Tensor, pairs: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         # Number of samples in the batch, coming from the latten representation h.
         # Number of products, coming from the latten representation h.
         # Hidden dimension, coming from the latten representation h.
         B, n, H = h.shape 
         K = self.K_splines # Number of splines.
+
+        # pairs selections. Otherwise, we get everything.
+        active_pairs = pairs if pairs is not None else self._pairs
 
         b        = self.head_b(h).squeeze(-1) # b: intercept per product - (B, n)
         beta_raw = self.head_beta(h).squeeze(-1) # beta: linear own-price coefficient - (B, n)
@@ -118,21 +121,22 @@ class DemandParameterHead(nn.Module):
         w        = self.head_w(h)  # w: own-price spline weights - (B, n, K)
 
         if self.use_cross:
-            i_idx, j_idx = self._pairs[0], self._pairs[1] # (n_cross,)
-            h_i = h[:, i_idx, :] # (B, n_cross, H)
-            h_j = h[:, j_idx, :] # (B, n_cross, H) 
-            h_ij = torch.cat([h_i, h_j], dim=-1) # (B, n_cross, 2*H)
+            i_idx, j_idx = active_pairs[0], active_pairs[1] # (n_pairs,)
+            n_active = active_pairs.shape[1]
+            h_i = h[:, i_idx, :] # (B, n_pairs, H)
+            h_j = h[:, j_idx, :] # (B, n_pairs, H) 
+            h_ij = torch.cat([h_i, h_j], dim=-1) # (B, n_pairs, 2*H)
 
             alpha = self.head_alpha(h_ij).squeeze(-1) # alpha: cross-price coefficient per pair (i!=j) - (B, n_cross)
-            # u: cross-price weight tensor per pair (i!=j) - (B, n_cross, K, K)
-            u = self.head_cross(h_ij).view(B, self.n_cross, K, K) 
+            # u: cross-price weight tensor per pair (i!=j) - (B, n_pairs, K, K)
+            u = self.head_cross(h_ij).view(B, n_active, K, K) 
         else:
             # Empty tensor of shape (B, 0).
             alpha = torch.empty(B, 0, device=h.device, dtype=h.dtype)
             # Empty tensor of shape (B, 0, K, K).
             u = torch.empty(B, 0, K, K, device=h.device, dtype=h.dtype)
 
-        return {'b': b, 'beta': beta, 'alpha': alpha, 'w': w, 'u': u, 'pairs': self._pairs}
+        return {'b': b, 'beta': beta, 'alpha': alpha, 'w': w, 'u': u, 'pairs': active_pairs}
 
     def forward(self, *args, **kwargs):
         return self.run(*args, **kwargs)
