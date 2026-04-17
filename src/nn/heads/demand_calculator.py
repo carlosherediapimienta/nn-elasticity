@@ -18,6 +18,7 @@ class DemandCalculator:
         alpha: torch.Tensor,   # (B, n_cross)
         u: torch.Tensor,       # (B, n_cross, K, K)
         pairs: torch.Tensor,   # (2, n_cross)
+        attn_weights: torch.Tensor | None = None, # (B, n_cross)
         return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """
@@ -81,6 +82,11 @@ class DemandCalculator:
             alpha * x_j
             + torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j)
         ).to(Bx.dtype)
+
+        # If attn_weights is not None, we multiply the contributions by the attention weights.
+        if attn_weights is not None:
+            contrib_yi = contrib_yi * attn_weights.to(Bx.dtype)
+            contrib_ei = contrib_ei * attn_weights.to(Bx.dtype)
 
         # Recall that: .einsum() is a way to perform a sum of products of tensors.
         # For instance, if we have:
@@ -148,8 +154,13 @@ class DemandCalculator:
                 alpha * x_i
                 + torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)
             ).to(E.dtype)  # (B, n_cross)
-            # Symmetry E_{ij} = E_{ji} holds exactly by construction,
-            # so both triangles of E share the same values.
+
+            # If attn_weights is not None, we multiply the contributions by the attention weights.
+            if attn_weights is not None:
+                E_cross = E_cross * attn_weights.to(E.dtype)
+
+            # With directed pairs (i, j), off-diagonal elasticities are directional:
+            # E_{ij} and E_{ji} are learned independently (no enforced symmetry).
             E[:, i_idx, j_idx] = E_cross
         else:
             E = None

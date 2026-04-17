@@ -42,7 +42,7 @@ class ICDN(nn.Module):
         self.head = head # IntegrableDemandHead
         self.n = n # Number of products
 
-    def run(self, batch, return_parts: bool = False, compute_E: bool = False):
+    def run(self, batch, return_parts: bool = False, compute_E: bool = False, neighbor_meta: dict[str, torch.Tensor] | None = None):
         # (B, n, d_token) - Context vector.
         tokens = self.context_builder(batch)
         # (B, n) - Price vector. 
@@ -56,6 +56,7 @@ class ICDN(nn.Module):
             Bx=Bx,
             dBx=dBx,
             return_E=compute_E,
+            neighbor_meta=neighbor_meta,
         )
 
         if return_parts:
