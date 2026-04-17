@@ -27,22 +27,25 @@ class MultiProductDataset(Dataset):
     # Per-product suffixes: {suffix}_{i}
     PER_PRODUCT_COLS = [
         "lag_1", "lag_2", "lag_4",
-        "roll_4", "roll_8", "roll_13",
+        "roll_4", "roll_13",
         "miss_lag_1", "miss_lag_2", "miss_lag_4",
-        "miss_roll_4", "miss_roll_8", "miss_roll_13",
+        "miss_roll_4", "miss_roll_13",
         "weeks_seen_upc", "weeks_seen_store_upc",
         "liters_per_upc",
         # competitive features
-        "n_active_neighbors",
-        "nb_wmean_price",
-        "nb_min_price",
+        "n_neighbors",
         "nb_promo_share",
-        "price_gap_mean",
-        "price_gap_cheap",
-        "miss_nb_wmean_price",
-        "miss_nb_min_price",
-        "miss_price_gap_mean",
-        "miss_price_gap_cheap",
+        "n_same_brand_neighbors",
+        "sb_promo_share",
+        "lag1_nb_mean_demand",
+        "lag1_sb_mean_demand",
+        "roll4_nb_mean_demand",
+        "miss_lag1_nb_demand",
+        "miss_roll4_nb_demand",
+        "miss_lag1_sb_demand",
+        "store_cat_upc_count",
+        "n_new_neighbors",
+        "share_new_neighbors",
     ]
 
     PER_PRODUCT_CAT_COLS = ["brand", "style"] # categorical features

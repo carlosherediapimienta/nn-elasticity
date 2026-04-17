@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from .liter_metrics import LiterMetricsCalculator
 from .unit_converter import UnitConverter
-from .competitive_features import CompetitiveFeatureGenerator
 
 class ElasticityFeatureGenerator:
     """
@@ -22,7 +21,6 @@ class ElasticityFeatureGenerator:
 
     def __init__(self):
         self.liter_calculator = LiterMetricsCalculator(unit_converter=UnitConverter())
-        self.competitive_generator = CompetitiveFeatureGenerator()
 
     def _safe_log(self, x: pd.Series) -> pd.Series:
         x = pd.to_numeric(x, errors="coerce").astype(float)
@@ -57,8 +55,5 @@ class ElasticityFeatureGenerator:
         # Logs (guard against 0/negative)
         df["log_liters_sold"] = self._safe_log(df["liters_sold"])
         df["log_price_per_liter"] = self._safe_log(df["price_per_liter"])
-
-        # We add the competitive features.
-        df = self.competitive_generator.run(df)
 
         return df

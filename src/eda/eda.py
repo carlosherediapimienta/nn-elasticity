@@ -4,6 +4,7 @@ from typing import Optional, Union
 
 from .functions.missing_data import NanAnalyzer
 from .functions.outliers import OutlierAnalyzer
+from .functions.competitors import CompetitiveFeatureGenerator
 from .functions.time_series import (
     AutocorrelationAnalyzer,
     AggregatedTrendAnalyzer,
@@ -72,6 +73,8 @@ class EDA:
         self.outlier_analyzer = OutlierAnalyzer()
         self.autocorrelation_analyzer = AutocorrelationAnalyzer()
 
+        self.competitive_feature_generator = CompetitiveFeatureGenerator()
+
 ### ---------------------- Data Quality ----------------------
     def analyze_nans(self, df: pd.DataFrame, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return self.nan_analyzer.run(df, columns=columns)
@@ -128,3 +131,7 @@ class EDA:
 
     def analyze_autocorrelation(self, df: pd.DataFrame, value_col: str = "log_liters_sold", max_lags: int = 20) -> dict:
         return self.autocorrelation_analyzer.run(df, value_col, max_lags)
+
+### ---------------------- Competitive Features ----------------------
+    def build_competitive_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        return self.competitive_feature_generator.run(df)
