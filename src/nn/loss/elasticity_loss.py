@@ -21,6 +21,8 @@ class ElasticityLoss(nn.Module):
         lambda_smooth: float = 0.0,
         lambda_pos: float = 0.0,
         lambda_cross: float = 0.0,
+        lambda_cross_alpha: float = 0.0,
+        lambda_cross_u: float = 0.0,
         reduction: str = "mean",
     ):
         """
@@ -40,7 +42,8 @@ class ElasticityLoss(nn.Module):
         
         self.lambda_smooth = float(lambda_smooth)
         self.lambda_pos = float(lambda_pos)
-        self.lambda_cross = float(lambda_cross)
+        self.lambda_cross_alpha = float(lambda_cross_alpha)
+        self.lambda_cross_u = float(lambda_cross_u)
 
     def run(
         self,
@@ -78,7 +81,7 @@ class ElasticityLoss(nn.Module):
 
         # 4. Cross-price L2 penalty — discourages large alpha and u parameters.
         if self.lambda_cross > 0.0 and alpha is not None and u is not None and u.numel() > 0:
-            loss_cross = self.lambda_cross * (alpha.pow(2).mean() + u.pow(2).mean())
+            loss_cross = self.lambda_cross_alpha * alpha.pow(2).mean() + self.lambda_cross_u * u.pow(2).mean()
         else:
             loss_cross = y_hat.new_tensor(0.0)
 
