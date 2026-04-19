@@ -22,6 +22,7 @@ from .price_variation import (
     PromoPriceCollinearityAnalyzer,
     LogPriceLogDemandAnalyzer,  
     BaselineElasticityOLSAnalyzer,
+    CollinearityAnalyzer,
 )
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
     "PromoPriceCollinearityAnalyzer",
     "LogPriceLogDemandAnalyzer",
     "BaselineElasticityOLSAnalyzer",
+    "CollinearityAnalyzer",
     "AggregatedTrendAnalyzer",
     "TemporalFeatureBuilder",
 ]
