@@ -24,6 +24,7 @@ from .functions.price_variation import (
     PromoPriceCollinearityAnalyzer,
     LogPriceLogDemandAnalyzer,
     BaselineElasticityOLSAnalyzer,
+    CollinearityAnalyzer,
 )
 
 
@@ -70,6 +71,7 @@ class EDA:
         self.promo_price_collinearity_analyzer = PromoPriceCollinearityAnalyzer()
         self.log_price_log_demand_analyzer = LogPriceLogDemandAnalyzer()
         self.baseline_elasticity_ols_analyzer = BaselineElasticityOLSAnalyzer()
+        self.collinearity_analyzer = CollinearityAnalyzer()
         self.outlier_analyzer = OutlierAnalyzer()
         self.autocorrelation_analyzer = AutocorrelationAnalyzer()
 
@@ -135,3 +137,7 @@ class EDA:
 ### ---------------------- Competitive Features ----------------------
     def build_competitive_features(self, df: pd.DataFrame) -> pd.DataFrame:
         return self.competitive_feature_generator.run(df)
+
+### ---------------------- Colineallity Analysis ----------------------
+    def analyze_collinearity(self, df: pd.DataFrame, columns: list[str]) -> dict:
+        return self.collinearity_analyzer.run(df, columns)
