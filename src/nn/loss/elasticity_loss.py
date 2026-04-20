@@ -20,7 +20,6 @@ class ElasticityLoss(nn.Module):
         huber_delta: float = 1.0,
         lambda_smooth: float = 0.0,
         lambda_pos: float = 0.0,
-        lambda_cross: float = 0.0,
         lambda_cross_alpha: float = 0.0,
         lambda_cross_u: float = 0.0,
         reduction: str = "mean",
@@ -30,7 +29,8 @@ class ElasticityLoss(nn.Module):
             huber_delta: threshold for Huber loss
             lambda_smooth: smoothness penalty weight
             lambda_pos: positivity penalty weight
-            lambda_cross: cross-price elasticity penalty weight (alpha, u)
+            lambda_cross_alpha: cross-price elasticity penalty weight (alpha)
+            lambda_cross_u: cross-price elasticity penalty weight (u)
             reduction: reduction method for Huber loss
         """
         super().__init__()
@@ -79,14 +79,22 @@ class ElasticityLoss(nn.Module):
         else:
             loss_pos = y_hat.new_tensor(0.0)
 
-        # 4. Cross-price L2 penalty — discourages large alpha and u parameters.
-        if self.lambda_cross > 0.0 and alpha is not None and u is not None and u.numel() > 0:
-            loss_cross = self.lambda_cross_alpha * alpha.pow(2).mean() + self.lambda_cross_u * u.pow(2).mean()
+        # 4. Cross-price alpha L2 penalty — discourages large alpha parameters.
+        if self.lambda_cross_alpha > 0.0 and alpha is not None and alpha.numel() > 0:
+            loss_cross_alpha = alpha.pow(2).mean()
         else:
-            loss_cross = y_hat.new_tensor(0.0)
+            loss_cross_alpha = y_hat.new_tensor(0.0)
+
+        # 5. Cross-price u L2 penalty — discourages large u parameters.
+        if self.lambda_cross_u > 0.0 and u is not None and u.numel() > 0:
+            loss_cross_u = u.pow(2).mean()
+        else:
+            loss_cross_u = y_hat.new_tensor(0.0)
+
+ 
 
         # Compute the total loss.
-        loss = loss_fit + self.lambda_smooth * loss_smooth + self.lambda_pos * loss_pos + self.lambda_cross * loss_cross
+        loss = loss_fit + self.lambda_smooth * loss_smooth + self.lambda_pos * loss_pos + self.lambda_cross_alpha * loss_cross_alpha + self.lambda_cross_u * loss_cross_u
 
         # Compute the logs. We detach the tensors to free the memory.
         logs = {
@@ -94,7 +102,8 @@ class ElasticityLoss(nn.Module):
             "loss_fit":    loss_fit.detach(),
             "loss_smooth": loss_smooth.detach(),
             "loss_pos":    loss_pos.detach(),
-            "loss_cross":  loss_cross.detach(),
+            "loss_cross_alpha":  loss_cross_alpha.detach(),
+            "loss_cross_u":  loss_cross_u.detach(),
             "eps_mean":    eps_hat.detach().mean(),
             "eps_p50":     eps_hat.detach().median(),
             "obs_frac":    obs_mask.mean().detach(),
