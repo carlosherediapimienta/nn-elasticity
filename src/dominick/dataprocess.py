@@ -1,9 +1,8 @@
 import pandas as pd
 from .processors import (
     FinancialRatiosCalculator,
-    UnitConverter,
-    LiterMetricsCalculator,
     ElasticityFeatureGenerator,
+    ProductTextNormalizer,
 )
 
 class DominickDataProcessor:
@@ -26,9 +25,8 @@ class DominickDataProcessor:
 
     def __init__(self):
         self.financial_calculator = FinancialRatiosCalculator()
-        self.unit_converter = UnitConverter()
-        self.liter_calculator = LiterMetricsCalculator(unit_converter=self.unit_converter)
-        self.elasticity_generator = ElasticityFeatureGenerator(self.liter_calculator)
+        self.elasticity_generator = ElasticityFeatureGenerator()
+        self.text_normalizer = ProductTextNormalizer()
 
     def join(self, left: pd.DataFrame, right: pd.DataFrame, on: str | list[str], how: str = "inner") -> pd.DataFrame:
         """Public API. Wrapper of pd.merge."""
@@ -44,6 +42,13 @@ class DominickDataProcessor:
         Delegates to FinancialRatiosCalculator.run().
         """
         return self.financial_calculator.run(df)
+
+    def add_text_normalization(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Public API. Adds text normalization.
+        Delegates to ProductTextNormalizer.run().
+        """
+        return self.text_normalizer.transform(df)
 
     def add_elasticity_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

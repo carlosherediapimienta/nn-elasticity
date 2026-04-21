@@ -1,3 +1,3 @@
-from .context_mlp import ContextMLP
+from .context_mlp import SharedProductEncoder
 
-__all__ = ['ContextMLP']
+__all__ = ['SharedProductEncoder']

@@ -46,23 +46,3 @@ class BootstrapSummarizer:
             )
             .reset_index()
         )
-
-    def summarize_cross(self, sym_df: pd.DataFrame) -> pd.DataFrame:
-        """Aggregate symmetrized cross-elasticities across bootstrap runs."""
-        return (
-            sym_df
-            .groupby(["store_code", "pair_id", "upc_a", "upc_b"])
-            .agg(
-                cross_elasticity_sym_mean=("cross_elasticity_sym", "mean"),
-                cross_elasticity_sym_std=("cross_elasticity_sym", "std"),
-                cross_elasticity_sym_ci_low=("cross_elasticity_sym", self._q025),
-                cross_elasticity_sym_ci_high=("cross_elasticity_sym", self._q975),
-                mae_val_mean=("mae_val_mean", "mean"),
-                mae_val_std=("mae_val_mean", "std"),
-                rmse_val_mean=("rmse_val_mean", "mean"),
-                rmse_val_std=("rmse_val_mean", "std"),
-                r2_val_mean=("r2_val_mean", "mean"),
-                r2_val_std=("r2_val_mean", "std"),
-            )
-            .reset_index()
-        )

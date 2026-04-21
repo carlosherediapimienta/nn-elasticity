@@ -27,12 +27,28 @@ class MultiProductDataset(Dataset):
     # Per-product suffixes: {suffix}_{i}
     PER_PRODUCT_COLS = [
         "lag_1", "lag_2", "lag_4",
-        "roll_4", "roll_8", "roll_13",
+        "roll_4", "roll_13",
         "miss_lag_1", "miss_lag_2", "miss_lag_4",
-        "miss_roll_4", "miss_roll_8", "miss_roll_13",
+        "miss_roll_4", "miss_roll_13",
         "weeks_seen_upc", "weeks_seen_store_upc",
         "liters_per_upc",
+        # competitive features
+        "n_neighbors",
+        "nb_promo_share",
+        "n_same_brand_neighbors",
+        "sb_promo_share",
+        "lag1_nb_mean_demand",
+        "lag1_sb_mean_demand",
+        "roll4_nb_mean_demand",
+        "miss_lag1_nb_demand",
+        "miss_roll4_nb_demand",
+        "miss_lag1_sb_demand",
+        "store_cat_upc_count",
+        "n_new_neighbors",
+        "share_new_neighbors",
     ]
+
+    PER_PRODUCT_CAT_COLS = ["brand", "style"] # categorical features
 
     def __init__(self, df: pd.DataFrame, n: int):
         self.n = n # Number of products
@@ -54,9 +70,12 @@ class MultiProductDataset(Dataset):
         for i in range(self.n):
             t[f"log_price_{i}"]  = torch.tensor(df[f"log_price_{i}"].values,  dtype=torch.float32)
             t[f"log_liters_{i}"] = torch.tensor(df[f"log_liters_{i}"].values, dtype=torch.float32)
-            t[f"obs_mask_{i}"]   = torch.tensor(df[f"obs_mask_{i}"].values,   dtype=torch.float32) # 1.0 where demand was observed, else 0.0.
+            t[f"obs_mask_{i}"]   = torch.tensor(df[f"obs_mask_{i}"].values,   dtype=torch.float32)
             for col in self.PER_PRODUCT_COLS:
                 t[f"{col}_{i}"] = torch.tensor(df[f"{col}_{i}"].values, dtype=torch.float32)
+            for col in self.PER_PRODUCT_CAT_COLS:
+                if f"{col}_{i}" in df.columns:
+                    t[f"{col}_{i}"] = torch.tensor(df[f"{col}_{i}"].values, dtype=torch.long)
 
         self.tensors = t # Dictionary with the tensors
         self._len    = len(df) # Number of samples in the dataset
