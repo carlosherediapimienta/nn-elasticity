@@ -108,48 +108,54 @@ class SparseNeighborSelector(nn.Module):
     ) -> torch.Tensor:
         """
         Selects top-k directed edges per focal product i.
-        Priority: same-category candidates first (strict), then any j≠i (relax).
+        Priority: same-category candidates first (strict), then any j neq i (relax).
 
         Returns:
             pairs: (2, E) with E = n * k_eff
         """
         n     = mean_scores.shape[0]
         k_eff = min(self.k, n - 1)
-        i_list, j_list = [], []
+        dev   = mean_scores.device
 
-        def _sorted_idx(mask_1d: torch.Tensor) -> list[int]:
-            idx = torch.where(mask_1d)[0]
-            if idx.numel() == 0:
-                return []
-            return idx[torch.argsort(mean_scores[i, idx], descending=True)].tolist()
+        if k_eff == 0:
+            return torch.empty(2, 0, dtype=torch.long, device=dev)
 
-        for i in range(n):
-            strict = (same_cat[i] & not_self[i]) if self.use_same_category_strict else not_self[i]
+        # ── Priority bias trick ────────────────────────────────────────────────
+        # To enforce strict: we add a large additive constant (1e6) 
+        # to the scores of same-category candidates.
+        # This guarantees that any strict candidate always outranks any fallback
+        # candidate in the topk, regardless of their actual attention scores.
+        # If a row has fewer strict candidates than k_eff, the remaining slots are
+        # filled automatically by the best fallback candidates — no conditional
+        # logic needed. The bias only affects ranking, not the attention weights
+        # computed in Stage 2 (which uses the original unbiased scores).
+        if self.use_same_category_strict:
+            # (n, n) float: 1e6 where same-category and not self-edge, else 0.
+            # 1e6 safely dominates real attention scores (typically in [-10, +10]).
+            priority_bias = (same_cat & not_self).float() * 1e6
+        else:
+            # No priority: all non-self candidates are treated equally.
+            priority_bias = torch.zeros(n, n, device=dev)
 
-            selected, seen = [], set()
-            # 1. Fill from strict candidates (same category)
-            for j in _sorted_idx(strict):
-                selected.append(j); seen.add(j)
-                if len(selected) == k_eff: break
-            # 2. Fallback to any j≠i if strict doesn't fill k_eff slots
-            if len(selected) < k_eff:
-                for j in _sorted_idx(not_self[i]):
-                    if j not in seen:
-                        selected.append(j); seen.add(j)
-                    if len(selected) == k_eff: break
+        # Apply bias and mask self-edges with -inf so they are never selected.
+        biased = mean_scores + priority_bias                          # (n, n)
+        biased = biased.masked_fill(~not_self, float("-inf"))        # (n, n)
 
-            if not selected:
-                continue
-            i_list.extend([i] * len(selected))
-            j_list.extend(selected)
+        # ── Single topk on GPU ────────────────────────────────────────────────
+        # torch.topk selects the k_eff best columns per row entirely on the GPU.
+        # Each row independently enforces strict → fallback via the bias:
+        #   - rows with ≥ k_eff strict candidates: top-k are all strict.
+        #   - rows with < k_eff strict candidates: strict slots filled first,
+        #     remaining slots filled by best fallback candidates.
+        _, top_j = torch.topk(biased, k_eff, dim=1)                  # (n, k_eff)
 
-        if not i_list:
-            return torch.empty(2, 0, dtype=torch.long, device=mean_scores.device)
+        # ── Build (2, E) edge index tensor entirely on GPU ────────────────────
+        # i_idx: each focal product i repeated k_eff times → [0,0,..,1,1,..,n-1,..]
+        # j_idx: the k_eff selected neighbors for each i, flattened.
+        i_idx = torch.arange(n, device=dev).unsqueeze(1).expand(n, k_eff).reshape(-1)  # (E,)
+        j_idx = top_j.reshape(-1)                                                        # (E,)
 
-        return torch.stack([
-            torch.tensor(i_list, device=mean_scores.device, dtype=torch.long),
-            torch.tensor(j_list, device=mean_scores.device, dtype=torch.long),
-        ], dim=0)  # (2, E)
+        return torch.stack([i_idx, j_idx], dim=0)  # (2, E), E = n * k_eff
 
     def run(
         self,

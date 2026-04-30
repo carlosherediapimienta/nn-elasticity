@@ -45,10 +45,11 @@ class ICDN(nn.Module):
     def run(self, batch, return_parts: bool = False, compute_E: bool = False, neighbor_meta: dict[str, torch.Tensor] | None = None):
         # (B, n, d_token) - Context vector.
         tokens = self.context_builder(batch)
-        # (B, n) - Price vector. 
-        x = torch.stack([batch[f"log_price_{i}"] for i in range(self.n)], dim=1)
+        # (B, n) - Price vector.
+        # batch["prices"] is already (B, n) — pre-stacked in MultiProductDataset.__init__.
+        x = batch["prices"]
         # Compute the spline bases, derivatives, and antiderivatives.
-        Bx, dBx, ddBx = self.price_splines(x) 
+        Bx, dBx, ddBx = self.price_splines(x)
         # Compute the predicted demand and elasticity.
         y_hat, eps_hat, aux = self.head.run(
             tokens=tokens,

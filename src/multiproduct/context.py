@@ -107,41 +107,32 @@ class ProductTokenBuilder(nn.Module):
         """
         Args:
             batch: dict from MultiProductDataset.__getitem__(), containing:
-                - "store_code": (B,) store index (label-encoded)
-                - time features: (B,) each — week_rank, sin/cos Fourier components
-                - promo features: (B,) each — on_promo, promo_intensity_store_week
-                - per-product features: (B,) each — lags, rolling stats, 
-                  missing indicators, static features
-
+                - "ids":            (B, 2)    long  — [:, 0]=store_code, [:, 1]=week_id
+                - "time_feats":     (B, 7)    float — Fourier precomputed + week_rank
+                - "promo_feats":    (B, 2)    float — on_promo, promo_intensity_store_week
+                - "per_prod_float": (B, n, F) float — lags, rolling stats, missing indicators
+                - "per_prod_cat":   (B, n, C) long  — [:, i, 0]=brand_i, [:, i, 1]=style_i
         Returns:
-            c: (B, out_dim) context vector, where out_dim = d_store + 7 + 2 + 15
+            c: (B, n, d_token) context tensor, one token per product per sample.
         """
-        # store embedding: 1 tensor of shape (B, d_store)
-        B = batch["store_code"].shape[0]
-
-        # ---Global broadcast: the same for all n tokens of each observation
-        e_s = self.emb_store(batch["store_code"].long())
-        # time features: 7 scalars to a tensor of shape (B, len(_TIME_COLS)) or (B, 7) for example
-        time_feats = torch.stack(
-            [batch[col] for col in _TIME_COLS], dim=1
-        )
-        # promo features: 2 scalars to a tensor of shape (B, len(_PROMO_COLS)) or (B, 2) for example
-        promo_feats = torch.stack(
-            [batch[col] for col in _PROMO_COLS], dim=1
-        )
-        global_ctx = torch.cat([e_s, time_feats, promo_feats], dim=1) # (B, d_store + 7 + 2)
-
+        # store embedding: (B, d_store).
+        # ids[:, 0] holds the store_code (label-encoded contiguous index).
+        e_s = self.emb_store(batch["ids"][:, 0])
+        # ---Global broadcast: the same for all n tokens of each observation.
+        # time_feats and promo_feats are already (B, 7) and (B, 2) — no stack needed.
+        global_ctx = torch.cat(
+            [e_s, batch["time_feats"], batch["promo_feats"]], dim=1
+        )  # (B, d_store + 7 + 2)
         # tokens per-product
         tokens = []
         for i in range(self.n):
-            # .long() is to convert the brand and style to integers (not floats).
-            e_brand = self.emb_brand(batch[f"brand_{i}"].long())  # (B, d_brand)
-            e_style = self.emb_style(batch[f"style_{i}"].long())  # (B, d_style)
-            per_i = torch.stack(
-                [batch[f"{col}_{i}"] for col in _PER_PRODUCT_COLS], dim=1
-            ) # (B, len(_PER_PRODUCT_COLS)) or (B, 15) for example
+            # per_prod_cat[:, i, 0] = brand_i  — .long() ensures integer dtype for embedding lookup.
+            e_brand = self.emb_brand(batch["per_prod_cat"][:, i, 0])  # (B, d_brand)
+            # per_prod_cat[:, i, 1] = style_i
+            e_style = self.emb_style(batch["per_prod_cat"][:, i, 1])  # (B, d_style)
+            # per_prod_float[:, i, :] already has shape (B, F) — no stack needed.
+            per_i   = batch["per_prod_float"][:, i, :]                # (B, F)
             token_i = torch.cat([global_ctx, e_brand, e_style, per_i], dim=1)
             tokens.append(token_i)
-
-        # Concatenate all the features.
-        return torch.stack(tokens, dim=1) # (B, n, d_token)
+        # Stack the per-product tokens along the product dimension.
+        return torch.stack(tokens, dim=1)  # (B, n, d_token)
