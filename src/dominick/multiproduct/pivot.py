@@ -56,6 +56,21 @@ class MultiProductPivoter:
         "weeks_since_first_seen_upc",
         "weeks_since_first_seen_store_upc",
         "liters_per_upc",
+        # competitive features
+        "n_neighbors_sw_cat",
+        "neighbor_promo_share_sw_cat",
+        "n_same_brand_neighbors_sw_cat",
+        "same_brand_neighbor_promo_share_sw_cat",
+        "lag1_neighbor_mean_log_liters_sold",
+        "lag1_same_brand_neighbor_mean_log_liters_sold",
+        "roll4_neighbor_mean_log_liters_sold",
+        "miss_lag1_neighbor_mean_log_liters_sold",
+        "miss_roll4_neighbor_mean_log_liters_sold",
+        "miss_lag1_same_brand_neighbor_mean_log_liters_sold",
+        "store_category_upc_count_static",
+        "same_brand_upc_count_store_cat_static",
+        "n_new_neighbors_13w",
+        "share_new_neighbors_13w",
     ]
 
     # short names that will have in the wide format: col_{i}
@@ -65,7 +80,55 @@ class MultiProductPivoter:
         "miss_lag_1", "miss_lag_2", "miss_lag_4",
         "miss_roll_4", "miss_roll_8", "miss_roll_13",
         "weeks_seen_upc", "weeks_seen_store_upc", "liters_per_upc",
+        # competitive features
+        "n_neighbors",
+        "nb_promo_share",
+        "n_same_brand_neighbors",
+        "sb_promo_share",
+        "lag1_nb_mean_demand",
+        "lag1_sb_mean_demand",
+        "roll4_nb_mean_demand",
+        "miss_lag1_nb_demand",
+        "miss_roll4_nb_demand",
+        "miss_lag1_sb_demand",
+        "store_cat_upc_count",
+        "same_brand_upc_store_cat_count",
+        "n_new_neighbors",
+        "share_new_neighbors",
     ]
+
+    _PER_UPC_CAT_COLS  = ["brand_family_norm", "style_segment_norm"]
+    _PER_UPC_CAT_SHORT = ["brand", "style"]
+
+    def _pivot_upc_col(
+        self,
+        df: pd.DataFrame,
+        long_col: str,
+        short_col: str,
+        selected_upcs: list,
+        n: int,
+        aggfunc: str = "mean",
+        fill_value: float | int = 0.0,
+        as_int: bool = False,
+    ) -> pd.DataFrame | None:
+
+        if long_col not in df.columns:
+            return None
+        # Pivot the column to the wide format.
+        pivoted = df.pivot_table(
+            index=["store_code", "week_id"],
+            columns="upc_code",
+            values=long_col,
+            aggfunc=aggfunc,
+        ).reindex(columns=selected_upcs)
+        # Fill missing values with the fill_value.
+        pivoted = pivoted.fillna(fill_value)
+        # If the column is an integer, convert it to an integer.
+        if as_int:
+            pivoted = pivoted.astype(int)
+        # Rename the columns to {short_col}_{i}.
+        pivoted.columns = [f"{short_col}_{i}" for i in range(n)]
+        return pivoted
 
     def run(self, df: pd.DataFrame, selected_upcs: list) -> pd.DataFrame:
         df = df[df["upc_code"].isin(selected_upcs)].copy()
@@ -135,17 +198,14 @@ class MultiProductPivoter:
         # row (store_code=A, week_id=10) -> columns [upc_code=1, upc_code=2, upc_code=3, ...] with their lag_1_log_liters_sold ...
         per_upc_parts = []
         for long_col, short_col in zip(self._PER_UPC_COLS, self._PER_UPC_SHORT):
-            if long_col not in df.columns:
-                continue
-            pivoted = df.pivot_table(
-                index=["store_code", "week_id"],
-                columns="upc_code",
-                values=long_col,
-                aggfunc="mean",
-            ).reindex(columns=selected_upcs)
-            pivoted = pivoted.fillna(0.0)
-            pivoted.columns = [f"{short_col}_{i}" for i in range(n)]
-            per_upc_parts.append(pivoted)
+            part = self._pivot_upc_col(df, long_col, short_col, selected_upcs, n)
+            if part is not None:
+                per_upc_parts.append(part)
+        for long_col, short_col in zip(self._PER_UPC_CAT_COLS, self._PER_UPC_CAT_SHORT):
+            part = self._pivot_upc_col(df, long_col, short_col, selected_upcs, n,
+                                        aggfunc="first", fill_value=0, as_int=True)
+            if part is not None:
+                per_upc_parts.append(part)
 
         # Final join of the pivot tables.
         wide = price_wide.join(demand_wide).join(obs_mask).join(store_week_agg)

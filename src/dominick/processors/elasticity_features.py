@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from .liter_metrics import LiterMetricsCalculator
+from .unit_converter import UnitConverter
 
 class ElasticityFeatureGenerator:
     """
@@ -17,8 +19,8 @@ class ElasticityFeatureGenerator:
         run(df) -> pd.DataFrame
     """
 
-    def __init__(self, liter_calculator):
-        self.liter_calculator = liter_calculator
+    def __init__(self):
+        self.liter_calculator = LiterMetricsCalculator(unit_converter=UnitConverter())
 
     def _safe_log(self, x: pd.Series) -> pd.Series:
         x = pd.to_numeric(x, errors="coerce").astype(float)
@@ -33,26 +35,25 @@ class ElasticityFeatureGenerator:
         Public API. Adds elasticity features.
         Requires: total_price, units_sold, units_per_deal, pack_size_text, promo_flag (optional).
         """
-        out = df.copy()
 
         # Ensure deal-corrected prices + liter metrics
-        out = self.liter_calculator.run(out)
+        df = self.liter_calculator.run(df)
 
         # Promo helpers (SALE inconsistent; this is still useful)
         # We get the promo_flag column from the DataFrame.
         # and fill missing values with empty strings.
-        pf = out.get("promo_flag", pd.Series(index=out.index, dtype="object"))
+        pf = df.get("promo_flag", pd.Series(index=df.index, dtype="object"))
         pf = pf.fillna("").astype(str).str.strip().str.upper()
         # We create the on_promo column.
-        out["on_promo"] = pf.ne("")
+        df["on_promo"] = pf.ne("")
 
         # We create the promo_B, promo_C, promo_S columns.
-        out["promo_B"] = (pf == "B").astype(int)
-        out["promo_C"] = (pf == "C").astype(int)
-        out["promo_S"] = (pf == "S").astype(int)
+        df["promo_B"] = (pf == "B").astype(int)
+        df["promo_C"] = (pf == "C").astype(int)
+        df["promo_S"] = (pf == "S").astype(int)
 
         # Logs (guard against 0/negative)
-        out["log_liters_sold"] = self._safe_log(out["liters_sold"])
-        out["log_price_per_liter"] = self._safe_log(out["price_per_liter"])
+        df["log_liters_sold"] = self._safe_log(df["liters_sold"])
+        df["log_price_per_liter"] = self._safe_log(df["price_per_liter"])
 
-        return out
+        return df

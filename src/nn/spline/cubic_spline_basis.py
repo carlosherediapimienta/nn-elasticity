@@ -40,14 +40,10 @@ class CubicSplineBasis(nn.Module):
 
         Bx_s   = u ** 3
         dBx_s  = 3.0 * (u ** 2)
-        ddBx_s = 6.0 * u
-        IBx_s = u ** 4 / 4.0
-        dddBx_s = 6.0 * (u > 0).float()        
+        ddBx_s = 6.0 * u     
 
         inv_scale = 1.0 / self.scale
         Bx   = Bx_s
         dBx  = dBx_s  * inv_scale
         ddBx = ddBx_s * (inv_scale ** 2)
-        dddBx   = dddBx_s * (inv_scale ** 3)
-        IBx  = IBx_s * self.scale
-        return Bx, dBx, ddBx, dddBx, IBx                    # (B, K)
+        return Bx, dBx, ddBx                    # (B, K)

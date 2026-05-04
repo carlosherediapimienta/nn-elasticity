@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from ..context import ContextMLP
-from ..heads import DemandParameterHead, DemandCalculator
+from ..context import SharedProductEncoder
+from ..heads import DemandParameterHead, DemandCalculator, SparseNeighborSelector
 
 
 class IntegrableDemandHead(nn.Module):
@@ -9,7 +9,7 @@ class IntegrableDemandHead(nn.Module):
     Multiproduct demand head derived from an integrable scalar potential.
 
     Delegation:
-    - ContextMLP:           encodes context c to h
+    - SharedProductEncoder: encodes context c to h
     - DemandParameterHead:  produces b, beta, w, u from h
     - DemandCalculator:     computes y_hat, eps_hat, E
 
@@ -21,6 +21,7 @@ class IntegrableDemandHead(nn.Module):
         context_dim: int,
         K_splines: int,
         n: int,
+        k_neighbors: int = 2,
         hidden=(256, 128, 64),
         act="tanh",
         dropout=0.0,
@@ -30,10 +31,10 @@ class IntegrableDemandHead(nn.Module):
         super().__init__()
 
         # Build the context MLP.
-        self.ctx = ContextMLP(
+        self.encoder = SharedProductEncoder(
             context_dim, hidden=hidden, act=act, dropout=dropout
         )
-        H = self.ctx.out_dim # Hidden dimension of the context MLP.
+        H = self.encoder.out_dim # Hidden dimension of the shared product encoder.
 
         # Build the demand parameter head for the parameters b, beta, w, u.
         # It will output a tensor of shape (B, n) for b, (B, n) for beta,
@@ -50,28 +51,46 @@ class IntegrableDemandHead(nn.Module):
         # the own-price elasticity eps_hat, and the elasticity matrix E.
         self.demand_calc    = DemandCalculator()
 
+        # Build the sparse neighbor selector to select the neighbors.
+        if use_cross:
+            self.neighbor_selector = SparseNeighborSelector(d_hidden=H, k_neighbors=k_neighbors)
+        else:
+            self.neighbor_selector = None
+
     def run(
         self,
-        c: torch.Tensor,
+        tokens: torch.Tensor,
         x: torch.Tensor,
         Bx: torch.Tensor,
         dBx: torch.Tensor,
-        ddBx: torch.Tensor,
-        IBx: torch.Tensor,
         return_E: bool = False,
+        neighbor_meta: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
         # ── Step 1: Compute the latent representation h from the context c.
-        # The context c is a tensor of shape (B, context_dim).
-        # The latent representation h is a tensor of shape (B, hidden_dim).
-        # We use the context MLP to compute the latent representation h.
-        h      = self.ctx(c)
+        # The context c is a tensor of shape (B, n, d_token).
+        # The latent representation h is a tensor of shape (B, n, H).
+        # We use the shared product encoder to compute the latent representation h.
+        h      = self.encoder(tokens)
+
+        # ── Step 2: Select the neighbors.
+        # The neighbors are a tensor of shape (2, n*k_neighbors).
+        # We use the sparse neighbor selector to select the neighbors.
+        pairs, attn_weights = None, None
+        if self.neighbor_selector is not None and neighbor_meta is not None:
+            pairs, attn_weights = self.neighbor_selector.run(
+                h=h,
+                category=neighbor_meta["category"],
+                brand=neighbor_meta["brand"],
+                style=neighbor_meta["style"],
+                liters=neighbor_meta["liters"],
+            )
 
         # ── Step 2: Compute the parameters b, beta, w, u from the latent representation h.
         # The parameters b, beta, w, u are a tensor of shape (B, n) for b,
         # (B, n) for beta, (B, n, K) for w, and (B, n_cross, K, K) for u.
         # We use the demand parameter head to compute the parameters b, beta, w, u.
-        params = self.param_head.run(h)   # {b, beta, w, u, pairs}
+        params = self.param_head.run(h, pairs=pairs)   # {b, beta, w, u, pairs}
 
         # ── Step 3: Compute the predicted demand y_hat, the own-price elasticity eps_hat,
         # and the elasticity matrix E.
@@ -87,10 +106,10 @@ class IntegrableDemandHead(nn.Module):
             x=x,
             Bx=Bx,
             dBx=dBx,
-            ddBx=ddBx,
-            IBx=IBx,
+            alpha=params['alpha'],
             u=params['u'],
             pairs=params['pairs'],
+            attn_weights=attn_weights,
             return_E=return_E,
         )
         if return_E and (E is not None):

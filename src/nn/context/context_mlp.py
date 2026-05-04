@@ -1,18 +1,16 @@
 import torch
 import torch.nn as nn
 
-class ContextMLP(nn.Module):
+class SharedProductEncoder(nn.Module):
     """
-    MLP that encodes the raw context vector into a richer, more expressive representation.
-
-    The concatenated context (store embedding + time + promo + per-product features) contains
-    no interactions between its components. This MLP learns non-linear combinations across all
-    features, allowing the model to capture patterns such as "high lag_1 + on_promo in store X".
-
-    Smooth activations (tanh, softplus, gelu) are used instead of ReLU to ensure the output
-    is differentiable everywhere — a requirement for integration over price.
-
-    Public API: forward() (following nn.Module convention).
+    MLP that encodes per-product context tokens into richer representations.
+    Input tokens have shape (B, n, d_token). This encoder is applied independently
+    to each product token (shared weights across products). It learns non-linear
+    feature combinations within each token (e.g., "high lag_1 + on_promo in store X"),
+    but does not model product-to-product interactions by itself.
+    Smooth activations (tanh, softplus, gelu) are used instead of ReLU to keep
+    the mapping differentiable everywhere, which is useful for price-integration
+    constraints in the demand model.
     """
     
     def __init__(self, d_in: int, hidden=(256, 128, 64), act="tanh", dropout=0.0):
@@ -53,15 +51,22 @@ class ContextMLP(nn.Module):
         self.net = nn.Sequential(*layers)
         self.out_dim = prev
 
-    def forward(self, c: torch.Tensor) -> torch.Tensor:
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         """
         Process context through the MLP.
         
         Args:
-            c: (B, d_in) context tensor
+            tokens: (B, n, d_token) tokens tensor
         
         Returns:
-            (B, out_dim) processed representation. This is called h and
+            (B, n, out_dim) latent representation. This is called h and
             named latent representation in the article.
         """
-        return self.net(c)
+        B, n, d_token = tokens.shape
+        flat = tokens.view(B*n, d_token) # (B*n, d_token)
+        h = self.net(flat) # (B*n, out_dim)
+        # This procedure is equivalent to:
+        # for i in products: h_i = MLP(token_i) but vectorized.
+        # Therefore, for each n, we get h_n but in representation (B, n, out_dim),
+        # where out_dim is the dimension of the latent representation.
+        return h.view(B, n, self.out_dim) # (B, n, out_dim)

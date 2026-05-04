@@ -1,4 +1,4 @@
 from .dataset import MultiProductDataset
-from .context import MultiProductContextEmbeddings
+from .context import ProductTokenBuilder
 
-__all__ = ["MultiProductDataset", "MultiProductContextEmbeddings"]
+__all__ = ["MultiProductDataset", "ProductTokenBuilder"]

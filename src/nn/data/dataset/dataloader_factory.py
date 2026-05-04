@@ -11,7 +11,9 @@ class DataLoaderFactory:
     def __init__(
         self,
         num_workers: int = 4,
-        pin_memory: bool = True
+        pin_memory: bool = True,
+        persistent_workers: bool = False,
+        prefetch_factor: int | None = 2,
     ):
         """
         Args:
@@ -21,6 +23,11 @@ class DataLoaderFactory:
         """
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        # Why this configuration?
+        # 1. Persistent workers: If True, the workers will be persistent and the data will be loaded in a streaming fashion.
+        # 2. Prefetch factor: The number of batches to prefetch from the dataset.
+        self.persistent_workers = persistent_workers
+        self.prefetch_factor = prefetch_factor 
     
     def create_train_loader(
         self,
@@ -47,7 +54,9 @@ class DataLoaderFactory:
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            drop_last=drop_last
+            drop_last=drop_last,
+            persistent_workers=self.persistent_workers and self.num_workers > 0,
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None
         )
     
     def create_eval_loader(
@@ -73,5 +82,7 @@ class DataLoaderFactory:
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            drop_last=False # Don't drop the last batch
+            drop_last=False, # Don't drop the last batch
+            persistent_workers=self.persistent_workers and self.num_workers > 0,
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None
         )

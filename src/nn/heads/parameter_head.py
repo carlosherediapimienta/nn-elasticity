@@ -32,18 +32,20 @@ class DemandParameterHead(nn.Module):
 
         # If cross-price terms are disabled, treat n_cross as 0 so we don't
         # allocate or compute cross tensors at all. The formula is:
-        # n_cross = n * (n - 1) // 2 and the reason is because of combinatorics without repetition.
+        # n_cross = n * (n - 1) and the reason is because of combinatorics without repetition.
         # For instance, if n = 3 (A, B, C), then the only possible pairs are:
-        # (A, B), (A, C), (B, C). Therefore, n_cross = 3.
-        self.n_cross = (n * (n - 1) // 2) if use_cross else 0 # number of cross-price terms
+        # (A, B), (B, A) (A, C), (C, A) (B, C), (C, B). Therefore, n_cross = 6. No symmetry!
+        self.n_cross = (n * (n - 1)) if use_cross else 0 # number of cross-price terms
 
         # We build the heads for the parameters.
-        self.head_b    = nn.Linear(hidden_dim, n) # b: intercept per product - (B, n)
-        self.head_beta = nn.Linear(hidden_dim, n) # beta: linear own-price coefficient - (B, n)
-        self.head_w    = nn.Linear(hidden_dim, n * K_splines) # w: own-price spline weights - (B, n, K)
+        self.head_b    = nn.Linear(hidden_dim, 1) # b: intercept per product - (B, 1)
+        self.head_beta = nn.Linear(hidden_dim, 1) # beta: linear own-price coefficient - (B, 1)
+        self.head_w    = nn.Linear(hidden_dim, K_splines) # w: own-price spline weights - (B, n, K)
         if use_cross:
-            # u: cross-price weight tensor per pair (i<j) - (B, n_cross, K, K)
-            self.head_cross = nn.Linear(hidden_dim, self.n_cross * K_splines * K_splines) 
+            # alpha: cross-price coefficient per pair (j \neq i) - (B, 1)
+            self.head_alpha = nn.Linear(2 * hidden_dim, 1)
+            # u: cross-price weight tensor per pair (j \neq i) - (B, 1, K, K)
+            self.head_cross = nn.Linear(2 *hidden_dim, K_splines * K_splines) 
 
         # enforce_negative_beta constrains the linear price coefficient to be negative 
         # (FMCG Theory), which prevents non-physical demand curves during early training (phase 0).
@@ -53,34 +55,56 @@ class DemandParameterHead(nn.Module):
 
         self.enforce_negative_beta = enforce_negative_beta
 
-
-        # We build the pairs for the cross-price terms.
-        # Imagine:
-        #     0    1    2
-        #    0  [0,0] [0,1] [0,2]
-        #    1  [1,0] [1,1] [1,2]
-        #    2  [2,0] [2,1] [2,2]
-        # The diagonal (offset=0): [0,0], [1,1], [2,2].
-        # The upper triangle (offset=1): [0,1], [0,2], [1,2].
-        # The lower triangle (offset=-1): [1,0], [2,0], [2,1].
-        # idx is a tensor of: (2, n_cross) 
-        # where the first row is the i index and the second row is the j index.
-        # Namely, idx[0] = [0,0,1] (rows)
-        # and idx[1] = [1,2,2] (columns).
+        # We build the index pairs used for cross-price terms.
+        #
+        # For an n x n grid of pair indices, for example with n = 3:
+        #
+        #        j=0    1      2
+        # i=0   [0,0] [0,1] [0,2]
+        # i=1   [1,0] [1,1] [1,2]
+        # i=2   [2,0] [2,1] [2,2]
+        #
+        # Here we keep all off-diagonal pairs, i.e. all (i, j) such that i != j.
+        # This includes both directions of each pair:
+        #   (0,1) and (1,0)
+        #   (0,2) and (2,0)
+        #   (1,2) and (2,1)
+        #
+        # We first build a boolean mask where the diagonal is False and every
+        # off-diagonal position is True:
+        #   ~torch.eye(n, dtype=torch.bool)
+        #
+        # Then mask.nonzero(...).T returns the coordinates of all True entries
+        # with shape (2, n * (n - 1)), where:
+        #   - idx[0] contains the row indices i
+        #   - idx[1] contains the column indices j
+        #
+        # For n = 3, the selected pairs are:
+        #   (0,1), (0,2), (1,0), (1,2), (2,0), (2,1)
+        #
+        # So unlike the previous version, we exclude only self-pairs (i == j),
+        # but we keep both the upper and lower triangles.
         if use_cross:
-            idx = torch.triu_indices(n, n, offset=1)
+            mask = ~torch.eye(n, dtype=torch.bool)
+            idx = mask.nonzero(as_tuple=False).T
         else:
             # Empty tensor of shape (2, 0)
             idx = torch.empty(2, 0, dtype=torch.long)
         # We register the pairs as a buffer.
         self.register_buffer('_pairs', idx)
 
-    def run(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
-        B = h.shape[0] # Number of samples in the batch, coming from the latten representation h.
+    def run(self, h: torch.Tensor, pairs: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+        # Number of samples in the batch, coming from the latten representation h.
+        # Number of products, coming from the latten representation h.
+        # Hidden dimension, coming from the latten representation h.
+        B, n, H = h.shape 
         K = self.K_splines # Number of splines.
 
-        b        = self.head_b(h) # b: intercept per product - (B, n)
-        beta_raw = self.head_beta(h) # beta: linear own-price coefficient - (B, n)
+        # pairs selections. Otherwise, we get everything.
+        active_pairs = pairs if pairs is not None else self._pairs
+
+        b        = self.head_b(h).squeeze(-1) # b: intercept per product - (B, n)
+        beta_raw = self.head_beta(h).squeeze(-1) # beta: linear own-price coefficient - (B, n)
         # -------------------------- IMPORTANT --------------------------
         # softplus(x) = log(1 + exp(x)) is always positive, so -softplus(beta_raw)
         # is always negative - this enforces the prior that own-price coefficients
@@ -94,16 +118,25 @@ class DemandParameterHead(nn.Module):
         # price effect. The spline weights w also contribute to the slope, so even
         # when beta approximately 0 the model can still capture price sensitivity via the splines.
         beta     = -F.softplus(beta_raw) if self.enforce_negative_beta else beta_raw
-        w        = self.head_w(h).view(B, self.n, K) # w: own-price spline weights - (B, n, K)
+        w        = self.head_w(h)  # w: own-price spline weights - (B, n, K)
 
         if self.use_cross:
-            # u: cross-price weight tensor per pair (i<j) - (B, n_cross, K, K)
-            u = self.head_cross(h).view(B, self.n_cross, K, K) 
+            i_idx, j_idx = active_pairs[0], active_pairs[1] # (n_pairs,)
+            n_active = active_pairs.shape[1]
+            h_i = h[:, i_idx, :] # (B, n_pairs, H)
+            h_j = h[:, j_idx, :] # (B, n_pairs, H) 
+            h_ij = torch.cat([h_i, h_j], dim=-1) # (B, n_pairs, 2*H)
+
+            alpha = self.head_alpha(h_ij).squeeze(-1) # alpha: cross-price coefficient per pair (i!=j) - (B, n_cross)
+            # u: cross-price weight tensor per pair (i!=j) - (B, n_pairs, K, K)
+            u = self.head_cross(h_ij).view(B, n_active, K, K) 
         else:
+            # Empty tensor of shape (B, 0).
+            alpha = torch.empty(B, 0, device=h.device, dtype=h.dtype)
             # Empty tensor of shape (B, 0, K, K).
             u = torch.empty(B, 0, K, K, device=h.device, dtype=h.dtype)
 
-        return {'b': b, 'beta': beta, 'w': w, 'u': u, 'pairs': self._pairs}
+        return {'b': b, 'beta': beta, 'alpha': alpha, 'w': w, 'u': u, 'pairs': active_pairs}
 
     def forward(self, *args, **kwargs):
         return self.run(*args, **kwargs)
