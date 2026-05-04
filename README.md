@@ -1,24 +1,38 @@
-# Integrable Elasticity via Neural Demand Potentials
+# Integrable Elasticity via Neural Demand Surfaces
 
-A neural network framework for estimating own- and cross-price elasticities of demand from scanner data, grounded in microeconomic integrability theory. The model derives demand functions as gradients of a scalar potential, guaranteeing symmetric cross-price effects by construction. Evaluated on Dominick's Finer Foods retail dataset against a pairwise log-log OLS benchmark.
+A neural-network framework for estimating own- and cross-price elasticities of demand from scanner data, grounded in derivative-coherent demand modeling. The model learns a smooth context-dependent log-demand surface and obtains elasticities as exact derivatives with respect to log-prices. Evaluated on the Dominick's Finer Foods beer dataset against a directed pairwise log-log OLS benchmark.
 
 ---
 
 ## Key idea
 
-Classical demand estimation fits separate regressions per product pair, yielding elasticity matrices that are neither symmetric nor derived from a coherent utility-maximization problem. This project takes a different route:
+Classical demand estimation often fits separate regressions for product pairs, yielding elasticity estimates that can be noisy, unstable, and difficult to reconcile with a single demand representation. This project takes a demand-first route:
 
-1. **Demand potential.** A scalar function $\Phi(\mathbf{x}, \mathbf{c})$ of log-prices $\mathbf{x}$ and context $\mathbf{c}$ (store, time, promotions) is parameterized by a neural network. Predicted log-demand for product $i$ is obtained as:
+1. **Demand surface.** The model learns a context-dependent log-demand map
 
-   $$
-   \hat{y}_i = \frac{\partial \Phi}{\partial x_i}
-   $$
+   \[
+   \hat{\mathbf{y}} = g_\theta(\mathbf{u}, \mathbf{x}),
+   \]
 
-2. **Integrability by construction.** Because demand is the gradient of a single potential, the Jacobian $\partial \hat{y}_i / \partial x_j$ is the Hessian of $\Phi$ — symmetric by construction. Cross-price elasticities satisfy $E_{ij} = E_{ji}$ without post-hoc symmetrization.
+   where $\mathbf{u}$ denotes log-prices and $\mathbf{x}$ includes store, time, promotion, product, and competitive context.
 
-3. **Flexible price response.** Non-linearity in prices is captured by cubic spline bases with analytically available derivatives (up to third order) and antiderivatives, enabling closed-form elasticities, curvature penalties, and cross-product potential terms.
+2. **Elasticities by exact differentiation.** Own- and cross-price elasticities are obtained as the Jacobian of the fitted log-demand surface:
 
-4. **Context-dependent parameters.** An MLP maps store embeddings, Fourier time features, and product-level covariates to the spline coefficients and cross-product weights, so the demand surface adapts to heterogeneous market conditions.
+   \[
+   \hat E_{ij} = \frac{\partial g_{\theta,i}(\mathbf{u}, \mathbf{x})}{\partial u_j}.
+   \]
+
+   This ties demand prediction and elasticity estimation to the same differentiable representation.
+
+3. **Integrability / derivative coherence.** For each demand component, the elasticity row is the gradient of a single log-demand surface. This guarantees row-wise integrability and path-independent demand reconstruction, rather than treating elasticities as arbitrary local outputs.
+
+4. **Directional cross-price effects.** Cross-price elasticities are learned as directional effects: the response of product $i$'s demand to product $j$'s price need not equal the reverse response. The model therefore does not impose $E_{ij}=E_{ji}$, Slutsky symmetry, or Hicksian symmetry.
+
+5. **Flexible price response.** Nonlinear own- and cross-price effects are represented with product-specific cubic spline bases whose derivatives are available in closed form. This enables analytic elasticities, curvature regularization, and scalable training without dense automatic-differentiation Jacobians.
+
+6. **Context-dependent parameters.** A shared product encoder maps product-level tokens—store, time, promotions, lags, product metadata, and competitive features—into the coefficients of the structured demand surface, allowing elasticities to vary across market conditions.
+
+7. **Sparse cross-product interaction graph.** A sparse neighbor selector identifies relevant directed competitors per product using attention and metadata such as category, brand, style, and pack-size similarity. This keeps the cross-price component scalable while preserving heterogeneous substitution and complementarity patterns.
 
 ---
 
@@ -34,28 +48,32 @@ Classical demand estimation fits separate regressions per product pair, yielding
 ┌──────────┴──────────────────┐
 ▼                             ▼
 ┌────────────────────────┐    ┌──────────────────────┐
-│ MultiProductContext    │    │ MultiCubicSplineBasis│
-│ Embeddings             │    │                      │
-│                        │    │ Bx, dBx, ddBx,      │
-│ store emb + Fourier +  │    │ dddBx, IBx          │
-│ promo + product feats  │    │                     │
+│ ProductTokenBuilder    │    │ MultiCubicSplineBasis │
+│                        │    │                      │
+│ store emb + Fourier +  │    │ Bx, dBx, ddBx        │
+│ promo + per-product    │    │                      │
+│ lags + competitive     │    │                      │
 └────────────┬───────────┘    └──────────┬───────────┘
-             │ context c                  │ spline outputs
-             └────────────┬───────────────┘
+             │ tokens (B,n,d)            │ spline outputs
+             └────────────┬──────────────┘
                           ▼
-                ┌────────────────────────┐
-                │ IntegrableDemandHead   │
-                │                        │
-                │ ContextMLP(c) → h      │
-                │ ParameterHead(h) →     │
-                │   b, β, w (own)        │
-                │   u (cross potential)  │
-                │ DemandCalculator →     │
-                │   ŷ, ε̂, E             │
-                └────────────────────────┘
+                ┌────────────────────────────┐
+                │ IntegrableDemandHead       │
+                │                            │
+                │ SharedProductEncoder → h   │
+                │ SparseNeighborSelector →   │
+                │   pairs, attn_weights      │
+                │ DemandParameterHead(h) →   │
+                │   b, β, w (own)            │
+                │   α, u (cross potential)   │
+                │ DemandCalculator →         │
+                │   ŷ, ε̂, E                 │
+                └────────────────────────────┘
 ```
 
-**`ICDN`** (Integrable Context-Dependent Demand Network) orchestrates the full forward pass: context embeddings, spline evaluation, and the integrable demand head.
+**`ICDN`** (Integrable Context-Dependent Demand Network) orchestrates the full forward pass: context token building, spline evaluation, sparse neighbor selection, and the integrable demand head.
+
+---
 
 ## Evaluation framework
 
@@ -67,6 +85,8 @@ Classical demand estimation fits separate regressions per product pair, yielding
 
 The temporal splitter ensures no future leakage: validation folds are always chronologically after training data.
 
+---
+
 ## Project structure
 
 ```text
@@ -74,35 +94,83 @@ nn-elasticity/
 ├── data/                    # Processed CSVs and evaluation outputs
 ├── results/                 # Optuna DB, best hyperparameters, checkpoints
 ├── notebooks/
-│   ├── preprocess-data.ipynb        # Raw Dominick's data → dominick_features.csv
-│   ├── creation-dataset.ipynb       # Feature filtering → elasticity_dataset.csv
+│   ├── preprocess-data.ipynb          # Raw Dominick's data → dominick_features.csv
+│   ├── creation-dataset.ipynb         # Feature filtering → elasticity_dataset.csv
 │   ├── particular-eda-upc-store.ipynb # Focused EDA per store × UPC
-│   ├── hparam-search.ipynb          # Optuna hyperparameter optimization
-│   ├── nn_final_evaluation.ipynb    # Full evaluation of best trial (k-fold + bootstrap)
-│   ├── benchmark.ipynb              # Pairwise OLS benchmark (k-fold + bootstrap)
-│   └── analysis-results.ipynb       # Head-to-head comparison: NN vs benchmark
-├── src/
-│   ├── dominick/            # Data loading, processing, multiproduct pivot
-│   ├── processors/          # Unit conversion, financial ratios, features
-│   └── multiproduct/        # Panel selection, filtering, wide-format pivot
-├── multiproduct/            # PyTorch dataset and context embeddings
-├── nn/
-│   ├── models/              # ICDN, IntegrableDemandHead
-│   ├── heads/               # DemandCalculator, ElasticityCalculator, ParameterHead
-│   ├── spline/              # Cubic spline basis with derivatives and antiderivatives
-│   ├── context/             # ContextMLP
-│   ├── loss/                # ElasticityLoss and components
-│   ├── diagnostics/         # Integrability closure and Slutsky symmetry checks
-│   ├── data/                # ColumnEncoder, SplineBuilder, DataLoaderFactory
-│   └── time_features/       # Fourier seasonal features
-├── benchmark/               # Pairwise log-log OLS pipeline
-│   ├── pairs.py             # Long → directed pair dataset
-│   ├── pairwise_ols.py      # OLS fitting with robust SEs
-│   ├── symmetrizer.py       # Cross-elasticity symmetrization
-│   └── summarizer.py        # Bootstrap aggregation
-├── eda/                     # Exploratory data analysis modules
-└── utils/                   # TemporalSplitter, BlockBootstrapSampler
+│   ├── hparam-search.ipynb            # Optuna hyperparameter optimization
+│   ├── nn_final_evaluation.ipynb      # Full evaluation of best trial (k-fold + bootstrap)
+│   ├── benchmark.ipynb                # Pairwise OLS benchmark (k-fold + bootstrap)
+│   └── analysis-results.ipynb         # Head-to-head comparison: NN vs benchmark
+└── src/
+    ├── dominick/                      # Dominick's data loading and processing
+    │   ├── dataloader.py              # Raw CSV loader
+    │   ├── dataprocess.py             # Processing pipeline
+    │   ├── datasaver.py               # Saving utilities
+    │   ├── multiproduct_builder.py    # Orchestrates multiproduct pivot
+    │   ├── multiproduct/              # Panel selection and wide-format pivot
+    │   │   ├── filter_complete.py
+    │   │   ├── panel_selector.py
+    │   │   └── pivot.py
+    │   └── processors/                # Feature engineering
+    │       ├── elasticity_features.py
+    │       ├── financial_ratios.py
+    │       ├── liter_metrics.py
+    │       ├── text_normalizer.py
+    │       └── unit_converter.py
+    ├── multiproduct/                  # PyTorch dataset and context token builder
+    │   ├── dataset.py                 # MultiProductDataset (wide-format panel)
+    │   └── context.py                 # ProductTokenBuilder
+    ├── nn/
+    │   ├── models/
+    │   │   ├── icdn.py                # ICDN: top-level nn.Module
+    │   │   └── integrable_demand_head.py  # IntegrableDemandHead
+    │   ├── heads/
+    │   │   ├── demand_calculator.py       # DemandCalculator
+    │   │   ├── elasticity_calculator.py   # ElasticityCalculator
+    │   │   ├── parameter_head.py          # DemandParameterHead
+    │   │   └── neighbor_selector.py       # SparseNeighborSelector
+    │   ├── spline/
+    │   │   ├── cubic_spline_basis.py      # Per-product spline basis
+    │   │   └── multi_cubic_spline_basis.py # Vectorized multi-product spline
+    │   ├── context/
+    │   │   └── context_mlp.py             # SharedProductEncoder
+    │   ├── loss/
+    │   │   ├── elasticity_loss.py         # ElasticityLoss (Huber + smoothness + positivity + cross)
+    │   │   └── components/
+    │   │       ├── fit_loss.py
+    │   │       ├── smoothness_penalty.py
+    │   │       ├── positivity_penalty.py
+    │   │       └── curvature_calculator.py
+    │   ├── data/
+    │   │   ├── dataset/
+    │   │   │   └── dataloader_factory.py  # DataLoaderFactory
+    │   │   ├── preprocessing/
+    │   │   │   └── column_encoder.py      # ColumnEncoder
+    │   │   └── spline/
+    │   │       ├── knot_generator.py
+    │   │       ├── spline_builder.py      # SplineBuilder
+    │   │       └── statistics_calculator.py
+    │   └── time_features/
+    │       └── fourier_time_features.py   # Fourier seasonal features
+    ├── benchmark/                     # Pairwise log-log OLS pipeline
+    │   ├── config.py                  # BenchmarkConfig dataclass
+    │   ├── pairs.py                   # Long → directed pair dataset
+    │   ├── pairwise_ols.py            # OLS fitting with robust SEs
+    │   └── summarizer.py              # Bootstrap aggregation
+    ├── eda/                           # Exploratory data analysis
+    │   ├── eda.py
+    │   └── functions/
+    │       ├── competitors/           # Competitive feature builders
+    │       ├── grain/                 # Panel balance, coverage, gap imputation
+    │       ├── missing_data/          # NaN analysis
+    │       ├── outliers/              # Outlier detection
+    │       ├── price_variation/       # Log-price/demand, collinearity, baseline OLS
+    │       └── time_series/           # Trends, autocorrelation, temporal features
+    └── utils/
+        └── splits.py                  # TemporalSplitter, BlockBootstrapSampler
 ```
+
+---
 
 ## Pipeline
 
@@ -137,19 +205,26 @@ nn_bootstrap_*.csv          benchmark_bootstrap*.csv
         (generalization, stability, calibration)
 ```
 
+---
+
 ## Data
 
 The project uses the Dominick's Finer Foods dataset from the Kilts Center at Chicago Booth. Place the raw UPC and weekly store files (`upcber.csv`, `wber.csv`) in `data/` and run the preprocessing notebooks in order.
+
+---
 
 ## Benchmark
 
 The OLS benchmark fits a separate log-log regression for each directed product pair within each store:
 
-$$
+\[
 \log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon
-$$
+\]
 
-where $X$ includes promotion indicators, seasonal harmonics, lags, rolling means, and trend controls. Cross-elasticities are symmetrized by averaging both directions of each canonical pair. Inference uses HC1 robust standard errors and block bootstrap.
+
+where $X$ includes promotion indicators, seasonal harmonics, lags, rolling means, competitive neighbor features, and trend controls. Inference uses HC1 robust standard errors and block bootstrap. Configuration is centralized in `BenchmarkConfig`.
+
+---
 
 ## Setup
 
@@ -161,8 +236,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+---
 
-## Authors: 
+## Authors
 
 **Researchers**: Carlos Heredia, PhD & Daniel Roncel
 
