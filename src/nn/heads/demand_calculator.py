@@ -2,30 +2,32 @@ import torch
 
 class DemandCalculator:
     """
-    Computes predicted demand (log-space) from the parameters b, beta, w, u.
+    Computes predicted demand (log-space) and elasticities from
+    the parameters b, beta, w, beta_cross, w_cross, u.
 
     Public API: run().
     """
-
     def run(
         self,
-        b: torch.Tensor,       # (B, n)
-        beta: torch.Tensor,    # (B, n)
-        w: torch.Tensor,       # (B, n, K)
-        x: torch.Tensor,       # (B, n)
-        Bx: torch.Tensor,      # (B, n, K)
-        dBx: torch.Tensor,     # (B, n, K)
-        alpha: torch.Tensor,   # (B, n_cross)
-        u: torch.Tensor,       # (B, n_cross, K, K)
-        pairs: torch.Tensor,   # (2, n_cross)
-        attn_weights: torch.Tensor | None = None, # (B, n_cross)
+        b: torch.Tensor,           # (B, n)
+        beta: torch.Tensor,        # (B, n)
+        w: torch.Tensor,           # (B, n, K)
+        x: torch.Tensor,           # (B, n)
+        Bx: torch.Tensor,          # (B, n, K)
+        dBx: torch.Tensor,         # (B, n, K)
+        beta_cross: torch.Tensor,  # (B, n_cross) - linear cross-price coefficient β_{ij}(x)
+        w_cross: torch.Tensor,     # (B, n_cross, K) - cross-price spline weights w_{ij}(x)
+        u: torch.Tensor,           # (B, n_cross, K, K)
+        pairs: torch.Tensor,       # (2, n_cross)
+        attn_weights: torch.Tensor | None = None,  # (B, n_cross)
         return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """
         Returns:
             y_hat:   (B, n)    predicted demand
             eps_hat: (B, n)    own-price elasticity (diagonal of E)
-            E:       (B, n, n) full elasticity matrix \partial y_i / \partial x_j (or None if return_E=False)
+            E:       (B, n, n) full elasticity matrix \partial g_i / \partial u_j
+                               (or None if return_E=False)
         """
         B, n, K = Bx.shape # Number of samples in the batch, number of products, number of splines.
 
@@ -71,16 +73,19 @@ class DemandCalculator:
 
         # -- THEORY IMPLEMENTATION: See Article ────────────────────────────────────
 
-        # y_i += α_ij · x_i · x_j  +  B(x_i)^T U^{(ij)} B(x_j)
+        # g_i += a_ij · [ β_{ij} · u_j  +  w_{ij}^T B_j(u_j)  +  B_i(u_i)^T U^{(ij)} B_j(u_j) ]
+        # (attention a_ij is applied below after this block)
         contrib_yi = (
-             alpha * x_i * x_j
-             + torch.einsum('bpk,bpkl,bpl->bp', Bx_i,  u, Bx_j)
+            beta_cross * x_j                                          # linear cross term
+            + (w_cross * Bx_j).sum(dim=-1)                           # spline cross term
+            + torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, Bx_j)      # bilinear term
         ).to(Bx.dtype)
 
-        #  E_{ii} += α_ij · x_j  +  B'(x_i)^T U^{(ij)} B(x_j)
+        # E_{ii} += a_ij · B'_i(u_i)^T U^{(ij)} B_j(u_j)
+        # Note: β_{ij} · u_j and w_{ij}^T B_j(u_j) do not depend on u_i,
+        # so they do not contribute to the own-price elasticity.
         contrib_ei = (
-            alpha * x_j
-            + torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j)
+            torch.einsum('bpk,bpkl,bpl->bp', dBx_i, u, Bx_j)
         ).to(Bx.dtype)
 
         # If attn_weights is not None, we multiply the contributions by the attention weights.
@@ -149,10 +154,12 @@ class DemandCalculator:
             # Diagonal: own-price
             E[:, torch.arange(n), torch.arange(n)] = eps_hat
 
-            # Off-diagonal: cross-price  E_{ij} = α_ij · x_i  +  B(x_i)^T U^{(ij)} dBx_j
+            # Off-diagonal: cross-price
+            # E_{ij} = a_ij · [ β_{ij}  +  w_{ij}^T B'_j(u_j)  +  B_i(u_i)^T U^{(ij)} B'_j(u_j) ]
             E_cross = (
-                alpha * x_i
-                + torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)
+                beta_cross                                                # linear term
+                + (w_cross * dBx_j).sum(dim=-1)                          # spline cross term
+                + torch.einsum('bpk,bpkl,bpl->bp', Bx_i, u, dBx_j)     # bilinear term
             ).to(E.dtype)  # (B, n_cross)
 
             # If attn_weights is not None, we multiply the contributions by the attention weights.

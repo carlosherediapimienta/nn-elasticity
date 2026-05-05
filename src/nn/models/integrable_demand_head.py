@@ -106,7 +106,8 @@ class IntegrableDemandHead(nn.Module):
             x=x,
             Bx=Bx,
             dBx=dBx,
-            alpha=params['alpha'],
+            beta_cross=params['beta_cross'],  # linear cross-price coefficient β_{ij}(x) - (B, n_pairs)
+            w_cross=params['w_cross'],         # cross-price spline weights w_{ij}(x)     - (B, n_pairs, K)
             u=params['u'],
             pairs=params['pairs'],
             attn_weights=attn_weights,

@@ -4,15 +4,20 @@ import torch.nn.functional as F
 
 class DemandParameterHead(nn.Module):
     """
-    Generates parameters b(x), beta(x), w(x), u(x) from the latent representation x.
+    Generates parameters b(x), beta(x), w(x), beta_cross(x), w_cross(x), u(x)
+    from the latent representation h.
 
     Parameters:
-    - b:    intercept per product                          (B, n)
-    - beta: linear own-price coefficient                   (B, n)
-    - w:    own-price spline weights                       (B, n, K)
-    - u:    cross-price weight tensor per pair (i<j)       (B, n_cross, K, K)
-              u_{p,k,l} weights B_k(x_i) * B_l(x_j) in the cross potential
-              If use_cross=False, u is always zero (no cross-price interactions).
+    - b:          intercept per product                              (B, n)
+    - beta:       linear own-price coefficient β_{ii}(x)            (B, n)
+    - w:          own-price spline weights w_{ii}(x)                (B, n, K)
+    - beta_cross: linear cross-price coefficient β_{ij}(x)          (B, n_pairs)
+                    scales the term β_{ij}(x) · u_j in g_i
+    - w_cross:    cross-price spline weights w_{ij}(x)              (B, n_pairs, K)
+                    weights B_j(u_j) in the cross-price contribution to g_i
+    - u:          bilinear interaction tensor U^{(ij)}(x)           (B, n_pairs, K, K)
+                    u_{p,k,l} weights B_k(u_i) · B_l(u_j)
+                    If use_cross=False, all cross tensors are empty (no cross-price interactions).
 
     Public API: run().
     """
@@ -42,10 +47,17 @@ class DemandParameterHead(nn.Module):
         self.head_beta = nn.Linear(hidden_dim, 1) # beta: linear own-price coefficient - (B, 1)
         self.head_w    = nn.Linear(hidden_dim, K_splines) # w: own-price spline weights - (B, n, K)
         if use_cross:
-            # alpha: cross-price coefficient per pair (j \neq i) - (B, 1)
-            self.head_alpha = nn.Linear(2 * hidden_dim, 1)
-            # u: cross-price weight tensor per pair (j \neq i) - (B, 1, K, K)
-            self.head_cross = nn.Linear(2 *hidden_dim, K_splines * K_splines) 
+            # beta_cross: linear cross-price coefficient per directed pair (i,j), i != j.
+            # Captures the marginal effect of u_j on g_i through a scalar β_{ij}(x).
+            # Shape after squeeze: (B, n_pairs)
+            self.head_beta_cross = nn.Linear(2 * hidden_dim, 1)
+            # w_cross: cross-price spline weights per directed pair (i,j), i != j.
+            # Weights the spline basis B_j(u_j) in the cross-price contribution to g_i.
+            # Shape: (B, n_pairs, K)
+            self.head_w_cross = nn.Linear(2 * hidden_dim, K_splines)
+            # head_cross: bilinear interaction weights per directed pair (i,j), i != j.
+            # Reshaped to (B, n_pairs, K, K) to weight B_i(u_i)^T U^{(ij)} B_j(u_j).
+            self.head_cross = nn.Linear(2 * hidden_dim, K_splines * K_splines)
 
         # enforce_negative_beta constrains the linear price coefficient to be negative 
         # (FMCG Theory), which prevents non-physical demand curves during early training (phase 0).
@@ -121,22 +133,39 @@ class DemandParameterHead(nn.Module):
         w        = self.head_w(h)  # w: own-price spline weights - (B, n, K)
 
         if self.use_cross:
-            i_idx, j_idx = active_pairs[0], active_pairs[1] # (n_pairs,)
+            i_idx, j_idx = active_pairs[0], active_pairs[1]  # (n_pairs,)
             n_active = active_pairs.shape[1]
-            h_i = h[:, i_idx, :] # (B, n_pairs, H)
-            h_j = h[:, j_idx, :] # (B, n_pairs, H) 
+            h_i  = h[:, i_idx, :]               # (B, n_pairs, H)
+            h_j  = h[:, j_idx, :]               # (B, n_pairs, H)
             h_ij = torch.cat([h_i, h_j], dim=-1) # (B, n_pairs, 2*H)
 
-            alpha = self.head_alpha(h_ij).squeeze(-1) # alpha: cross-price coefficient per pair (i!=j) - (B, n_cross)
-            # u: cross-price weight tensor per pair (i!=j) - (B, n_pairs, K, K)
-            u = self.head_cross(h_ij).view(B, n_active, K, K) 
-        else:
-            # Empty tensor of shape (B, 0).
-            alpha = torch.empty(B, 0, device=h.device, dtype=h.dtype)
-            # Empty tensor of shape (B, 0, K, K).
-            u = torch.empty(B, 0, K, K, device=h.device, dtype=h.dtype)
+            # beta_cross: linear cross-price coefficient β_{ij}(x) - (B, n_pairs)
+            # Scales the linear term β_{ij}(x) · u_j in the demand formula.
+            beta_cross = self.head_beta_cross(h_ij).squeeze(-1)
 
-        return {'b': b, 'beta': beta, 'alpha': alpha, 'w': w, 'u': u, 'pairs': active_pairs}
+            # w_cross: cross-price spline weights w_{ij}(x) - (B, n_pairs, K)
+            # Weights the spline basis B_j(u_j) so that the model can capture
+            # non-linear cross-price effects beyond the linear β_{ij} term.
+            w_cross = self.head_w_cross(h_ij)  # (B, n_pairs, K)
+
+            # u: bilinear interaction tensor U^{(ij)}(x) - (B, n_pairs, K, K)
+            # u_{p,k,l} weights B_k(u_i) * B_l(u_j) in the cross potential.
+            u = self.head_cross(h_ij).view(B, n_active, K, K)
+        else:
+            # Empty tensors — no cross-price parameters allocated.
+            beta_cross = torch.empty(B, 0, device=h.device, dtype=h.dtype)          # (B, 0)
+            w_cross    = torch.empty(B, 0, K, device=h.device, dtype=h.dtype)       # (B, 0, K)
+            u          = torch.empty(B, 0, K, K, device=h.device, dtype=h.dtype)    # (B, 0, K, K)
+
+        return {
+            'b':          b,
+            'beta':       beta,
+            'beta_cross': beta_cross,  # linear cross-price coefficients β_{ij}(x) - (B, n_pairs)
+            'w':          w,
+            'w_cross':    w_cross,     # cross-price spline weights w_{ij}(x)       - (B, n_pairs, K)
+            'u':          u,           # bilinear interaction tensor U^{(ij)}(x)    - (B, n_pairs, K, K)
+            'pairs':      active_pairs,
+        }
 
     def forward(self, *args, **kwargs):
         return self.run(*args, **kwargs)
