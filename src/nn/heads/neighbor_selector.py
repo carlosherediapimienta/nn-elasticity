@@ -57,6 +57,13 @@ class SparseNeighborSelector(nn.Module):
         self.style_bonus_raw  = nn.Parameter(torch.tensor(self._inv_softplus(init_style_bonus)))
         self.liters_bonus_raw = nn.Parameter(torch.tensor(self._inv_softplus(init_liters_bonus)))
 
+        # Frozen graph buffers (None until freeze_graph() is called).
+        # Registered as persistent buffers so they travel with the checkpoint.
+        # frozen_pairs:      (2, E) edge index, batch-shared, fixed after training.
+        # frozen_edge_bonus: (E,)   meta_bonus[i_idx, j_idx] slice for the fast path.
+        self.register_buffer('frozen_pairs',      None)
+        self.register_buffer('frozen_edge_bonus', None)
+
     def _inv_softplus(self, x: float) -> float:
         """Raw value such that softplus(raw) ≈ x."""
         return torch.log(torch.expm1(torch.tensor(float(x)))).item()
@@ -99,6 +106,71 @@ class SparseNeighborSelector(nn.Module):
         ).masked_fill(~not_self, 0.0)  # no self-edge bonus
 
         return not_self, same_cat, bonus
+
+    @torch.no_grad()
+    def accumulate_mean_scores(
+        self,
+        h_iter,               # iterable yielding (B, n, d_hidden) tensors
+        category: torch.Tensor,
+        brand:    torch.Tensor,
+        style:    torch.Tensor,
+        liters:   torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Accumulate the global mean score matrix (n, n) over all training batches.
+
+        Iterates over h_iter — each element is an (B, n, d_hidden) tensor
+        already computed by the encoder for one training batch. The caller is
+        responsible for producing h in eval + no_grad context.
+
+        Returns global_mean_scores (n, n) for use in freeze_graph().
+        The caller should then call freeze_graph() with the result.
+        """
+        device = next(self.parameters()).device
+        not_self, _, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
+
+        acc   = None
+        count = 0
+        for h in h_iter:
+            h = h.to(device)
+            Q = self.q_proj(h)  # (B, n, d_attn)
+            K = self.k_proj(h)  # (B, n, d_attn)
+            # Full (B, n, n) matrix needed here: we do not yet know which pairs to keep.
+            scores = torch.bmm(Q, K.transpose(1, 2)) / self.scale   # (B, n, n)
+            scores = scores + meta_bonus.unsqueeze(0)
+            scores = scores.masked_fill(~not_self.unsqueeze(0), float("-inf"))
+            batch_mean = scores.mean(dim=0)                          # (n, n)
+            acc    = batch_mean if acc is None else acc + batch_mean
+            count += 1
+
+        if acc is None or count == 0:
+            raise RuntimeError("accumulate_mean_scores: h_iter was empty.")
+        return acc / count   # (n, n)
+
+    def freeze_graph(
+        self,
+        global_mean_scores: torch.Tensor,  # (n, n) — from accumulate_mean_scores()
+        category: torch.Tensor,
+        brand:    torch.Tensor,
+        style:    torch.Tensor,
+        liters:   torch.Tensor,
+    ) -> None:
+        """
+        Fix P* = TopK(global_mean_scores) and precompute the meta_bonus slice
+        for the frozen edges. After this call, run() uses the O(B * E * d_attn)
+        sparse path instead of the O(B * n²) dense path.
+
+        Intended usage: call once after training converges, before validation/test.
+        """
+        device = global_mean_scores.device
+        not_self, same_cat, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
+        pairs = self._build_pairs(global_mean_scores, not_self, same_cat)   # (2, E)
+        i_idx, j_idx = pairs[0], pairs[1]
+        # Precompute the (E,) meta_bonus vector for the frozen edges.
+        # Avoids recomputing the full (n, n) meta_bonus matrix on every forward pass.
+        edge_bonus = meta_bonus[i_idx, j_idx]                               # (E,)
+        self.register_buffer('frozen_pairs',      pairs)
+        self.register_buffer('frozen_edge_bonus', edge_bonus)
 
     def _build_pairs(
         self,
@@ -174,6 +246,21 @@ class SparseNeighborSelector(nn.Module):
 
         Q = self.q_proj(h)  # (B, n, d_attn)
         K = self.k_proj(h)  # (B, n, d_attn)
+
+        # ── Frozen graph path: O(B * E * d_attn) ─────────
+        # Active after freeze_graph() has been called (val/test and publication runs).
+        # P* is fixed; we only compute the E = n*k_eff dot products that are needed.
+        if self.frozen_pairs is not None:
+            pairs = self.frozen_pairs                                         # (2, E)
+            i_idx, j_idx = pairs[0], pairs[1]
+            E     = i_idx.numel()
+            k_eff = E // n
+            # Sparse dot products: (B, E) without materializing the full (B, n, n) matrix.
+            edge_logits = (Q[:, i_idx, :] * K[:, j_idx, :]).sum(-1) / self.scale  # (B, E)
+            edge_logits = edge_logits + self.frozen_edge_bonus.unsqueeze(0)        # (B, E)
+            edge_logits = edge_logits.view(B, n, k_eff)                            # (B, n, k_eff)
+            edge_weights = F.softmax(edge_logits, dim=-1).reshape(B, E)           # (B, E)
+            return pairs, edge_weights
 
         not_self, same_cat, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
 
