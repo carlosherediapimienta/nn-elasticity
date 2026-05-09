@@ -182,11 +182,13 @@ class PromoPriceCollinearityAnalyzer:
         # share_changes_with_promo_switch by series
         share_series = per_series["share_changes_with_promo_switch"].dropna()
         if share_series.shape[0] > 0:
+            share_mean = float(share_series.mean())
+            share_p25 = float(share_series.quantile(0.25))
             share_p50 = float(share_series.quantile(0.50))
             share_p75 = float(share_series.quantile(0.75))
             share_p90 = float(share_series.quantile(0.90))
         else:
-            share_p50 = share_p75 = share_p90 = np.nan
+            share_mean = share_p25 = share_p50 = share_p75 = share_p90 = np.nan
 
         global_stats = {
             "n_rows": n_rows,
@@ -207,6 +209,8 @@ class PromoPriceCollinearityAnalyzer:
                 "median": corr_median,
             },
             "share_changes_with_promo_switch": {
+                "mean": share_mean,
+                "p25": share_p25,
                 "p50": share_p50,
                 "p75": share_p75,
                 "p90": share_p90,
