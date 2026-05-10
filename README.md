@@ -79,8 +79,8 @@ Classical demand estimation often fits separate regressions for product pairs, y
 
 | Dimension | Method | Data source |
 |---|---|---|
-| **Generalization** | Temporal k-fold CV (expanding window) | `nn_kfold_metrics_raw.csv`, `benchmark_kfold_raw.csv` |
-| **Elasticity stability** | Block bootstrap with CI comparison | `nn_bootstrap_own_summary.csv`, `benchmark_elasticities_bootstrap_summary.csv` |
+| **Generalization** | Temporal k-fold CV (expanding window) | `nn_kfold_metrics_raw.csv`, `nn_kfold_elasticities_raw.csv`, `benchmark_kfold_raw.csv` |
+| **Elasticity stability** | Block bootstrap with CI comparison | `nn_bootstrap_elasticities_raw.csv`, `benchmark_bootstrap_raw.csv`, `benchmark_elasticities_bootstrap_summary.csv` |
 | **Calibration** | Bootstrap CI coverage over k-fold point estimates | Cross-referencing bootstrap CIs with k-fold elasticities |
 
 The temporal splitter ensures no future leakage: validation folds are always chronologically after training data.
@@ -96,7 +96,6 @@ nn-elasticity/
 ├── notebooks/
 │   ├── preprocess-data.ipynb          # Raw Dominick's data → dominick_features.csv
 │   ├── creation-dataset.ipynb         # Feature filtering → elasticity_dataset.csv
-│   ├── particular-eda-upc-store.ipynb # Focused EDA per store × UPC
 │   ├── hparam-search.ipynb            # Optuna hyperparameter optimization
 │   ├── nn_final_evaluation.ipynb      # Full evaluation of best trial (k-fold + bootstrap)
 │   ├── benchmark.ipynb                # Pairwise OLS benchmark (k-fold + bootstrap)
