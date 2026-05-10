@@ -10,17 +10,13 @@ Classical demand estimation often fits separate regressions for product pairs, y
 
 1. **Demand surface.** The model learns a context-dependent log-demand map
 
-   \[
-   \hat{\mathbf{y}} = g_\theta(\mathbf{u}, \mathbf{x}),
-   \]
+   $\hat{\mathbf{y}} = g_\theta(\mathbf{u}, \mathbf{x}),$
 
    where $\mathbf{u}$ denotes log-prices and $\mathbf{x}$ includes store, time, promotion, product, and competitive context.
 
 2. **Elasticities by exact differentiation.** Own- and cross-price elasticities are obtained as the Jacobian of the fitted log-demand surface:
 
-   \[
-   \hat E_{ij} = \frac{\partial g_{\theta,i}(\mathbf{u}, \mathbf{x})}{\partial u_j}.
-   \]
+   $\hat E_{ij} = \frac{\partial g_{\theta,i}(\mathbf{u}, \mathbf{x})}{\partial u_j}.$
 
    This ties demand prediction and elasticity estimation to the same differentiable representation.
 
@@ -216,9 +212,7 @@ The project uses the Dominick's Finer Foods dataset from the Kilts Center at Chi
 
 The OLS benchmark fits a separate log-log regression for each directed product pair within each store:
 
-\[
-\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon
-\]
+$\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon$
 
 
 where $X$ includes promotion indicators, seasonal harmonics, lags, rolling means, competitive neighbor features, and trend controls. Inference uses HC1 robust standard errors and block bootstrap. Configuration is centralized in `BenchmarkConfig`.
