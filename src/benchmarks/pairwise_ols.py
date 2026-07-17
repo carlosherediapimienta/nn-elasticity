@@ -45,7 +45,9 @@ class PairwiseElasticityPipeline:
             return False
         return True
 
-    def _fit_single(self, key: tuple, g_train: pd.DataFrame, g_val: pd.DataFrame) -> dict | None:
+    def _fit_single(
+        self, key: tuple, g_train: pd.DataFrame, g_val: pd.DataFrame
+    ) -> tuple[dict | None, pd.DataFrame | None]:
         store_code, pair_id, upc_i, upc_j = key
         # Try to fit the model
         try:
@@ -73,7 +75,7 @@ class PairwiseElasticityPipeline:
             ci = fit.conf_int()
 
             # Return the results
-            return {
+            summary = {
                 "store_code": store_code,
                 "pair_id": pair_id,
                 "upc_i": upc_i,
@@ -94,6 +96,21 @@ class PairwiseElasticityPipeline:
                 "r2_val": r2_val,
             }
 
+            # Row-level predictions, keyed by week. Needed to later collapse
+            # across partner UPCs j and pool residuals on a common
+            # (store, upc_i, week) unit, comparable to ICDN's global metric.
+            predictions = pd.DataFrame({
+                "store_code": store_code,
+                "pair_id": pair_id,
+                "upc_i": upc_i,
+                "upc_j": upc_j,
+                "week_id": g_val["week_id"].values,
+                "y_true_i": y_val.values,
+                "y_hat_i": pred_val.values,
+            })
+
+            return summary, predictions
+
         except Exception as exc:
             # Return the error message
             return {
@@ -103,15 +120,16 @@ class PairwiseElasticityPipeline:
                 "upc_j": upc_j,
                 "status": "error",
                 "error_message": str(exc),
-            }
+            }, None
 
     def run(
         self,
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
-    ) -> pd.DataFrame:
-        # Columns needed for the model
-        needed_cols = ["log_v_i", "log_p_i", "log_p_j"] + self.config.control_cols
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        # Columns needed for the model (+ week_id, kept only as a row key,
+        # never used as a regressor by the formula).
+        needed_cols = ["log_v_i", "log_p_i", "log_p_j", "week_id"] + self.config.control_cols
 
         # Group the data by the group keys
         train_groups = {
@@ -127,6 +145,7 @@ class PairwiseElasticityPipeline:
         # Get the common keys between the train and validation groups
         common_keys = sorted(set(train_groups) & set(val_groups))
         results = []
+        pred_frames = []
 
         # Fit the model for each common key
         for key in common_keys:
@@ -137,10 +156,12 @@ class PairwiseElasticityPipeline:
                 continue
 
             # Fit the model for the group
-            row = self._fit_single(key, g_train, g_val)
+            row, preds = self._fit_single(key, g_train, g_val)
             if row is not None:
                 results.append(row)
+            if preds is not None:
+                pred_frames.append(preds)
 
-        return pd.DataFrame(results)
-
-
+        summary_df = pd.DataFrame(results)
+        predictions_df = pd.concat(pred_frames, ignore_index=True) if pred_frames else pd.DataFrame()
+        return summary_df, predictions_df
