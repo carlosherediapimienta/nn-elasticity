@@ -79,6 +79,8 @@ class ElasticityLoss(nn.Module):
         #   own-price:   m_i             (product i observed)
         #   cross-price: m_i · m_j · 1[(i,j) active in the sparse graph]
         #   N_E = sum of all active mask entries (normalisation denominator)
+        diag = torch.arange(E.shape[1], device=E.device) if E is not None else None
+
         if self.lambda_elast > 0.0 and E is not None:
             B, n, _ = E.shape
 
@@ -86,7 +88,6 @@ class ElasticityLoss(nn.Module):
             L   = E.new_full((n, n), self.l_cross)
             R   = E.new_full((n, n), self.r_cross)
             rho = E.new_ones(n, n)
-            diag = torch.arange(n, device=E.device)
             L[diag, diag]   = self.l_own
             R[diag, diag]   = self.r_own
             rho[diag, diag] = self.rho_own_low
