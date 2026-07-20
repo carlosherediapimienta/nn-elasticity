@@ -1,0 +1,14 @@
+{
+  "variant": "free_sign",
+  "best_trial": 9,
+  "params": {
+    "N_KNOTS": 7,
+    "HIDDEN_KEY": "192_96",
+    "DROPOUT": 0.05726895807427855,
+    "LR_P0": 0.0051721704651266414,
+    "LR_P1": 0.0020714381947608816,
+    "LAMBDA_SMOOTH": 0.04753520043493772,
+    "LAMBDA_ELAST": 0.000166999289750661,
+    "BATCH_SIZE": 256
+  }
+}
