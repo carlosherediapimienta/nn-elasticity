@@ -88,14 +88,16 @@ The temporal splitter ensures no future leakage: validation folds are always chr
 ```text
 nn-elasticity/
 ├── data/                    # Processed CSVs and evaluation outputs
-├── results/                 # Optuna DB, best hyperparameters, checkpoints
+├── results/                 # Optuna DB, best hyperparameters, checkpoints, ablation + stress outputs
 ├── notebooks/
 │   ├── preprocess-data.ipynb          # Raw Dominick's data → dominick_features.csv
 │   ├── creation-dataset.ipynb         # Feature filtering → elasticity_dataset.csv
 │   ├── hparam-search.ipynb            # Optuna hyperparameter optimization
 │   ├── nn_final_evaluation.ipynb      # Full evaluation of best trial (k-fold + bootstrap)
-│   ├── benchmark.ipynb                # Pairwise OLS benchmark (k-fold + bootstrap)
-│   └── analysis-results.ipynb         # Head-to-head comparison: NN vs benchmark
+│   ├── benchmark.ipynb                # OLS / Ridge / MLP benchmarks (k-fold + bootstrap)
+│   ├── ablation-study.ipynb           # Leave-one-out ICDN component ablation
+│   ├── stress-test.ipynb              # ICDN forward-pass latency/memory vs (n, k)
+│   └── analysis-results.ipynb         # Head-to-head: ICDN vs OLS / Ridge / MLP
 └── src/
     ├── dominick/                      # Dominick's data loading and processing
     │   ├── dataloader.py              # Raw CSV loader
@@ -108,7 +110,7 @@ nn-elasticity/
     │   │   └── pivot.py
     │   └── processors/                # Feature engineering
     │       ├── elasticity_features.py
-    │       ├── financial_ratios.py
+    │       ├── financial_totals.py
     │       ├── liter_metrics.py
     │       ├── text_normalizer.py
     │       └── unit_converter.py
@@ -147,10 +149,12 @@ nn-elasticity/
     │   │       └── statistics_calculator.py
     │   └── time_features/
     │       └── fourier_time_features.py   # Fourier seasonal features
-    ├── benchmark/                     # Pairwise log-log OLS pipeline
-    │   ├── config.py                  # BenchmarkConfig dataclass
+    ├── benchmarks/                    # Baseline demand / elasticity pipelines
+    │   ├── config.py                  # BenchmarkConfig, RidgeConfig, MLPConfig
     │   ├── pairs.py                   # Long → directed pair dataset
-    │   ├── pairwise_ols.py            # OLS fitting with robust SEs
+    │   ├── pairwise_ols.py            # Pairwise OLS with robust SEs
+    │   ├── ridge.py                   # Pairwise RidgeCV (same grouping as OLS)
+    │   ├── demand_mlp.py              # Global demand-first MLP + autodiff elasticities
     │   └── summarizer.py              # Bootstrap aggregation
     ├── eda/                           # Exploratory data analysis
     │   ├── eda.py
@@ -210,12 +214,25 @@ The project uses the Dominick's Finer Foods dataset from the Kilts Center at Chi
 
 ## Benchmark
 
-The OLS benchmark fits a separate log-log regression for each directed product pair within each store:
+Three baselines share the same directed-pair construction and control set where applicable:
 
-$\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon$
+1. Pairwise OLS (PairwiseElasticityPipeline) — separate log-log regression per directed product pair within each store: $\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon$. Inference uses HC1 robust standard errors and block bootstrap. Configuration: BenchmarkConfig.
 
+2. Pairwise Ridge (RegularizedElasticityPipeline) — same grouping and formula as OLS; only the estimator changes (RidgeCV with internal alpha selection). Isolates the effect of coefficient shrinkage. Configuration: RidgeConfig.
 
-where $X$ includes promotion indicators, seasonal harmonics, lags, rolling means, competitive neighbor features, and trend controls. Inference uses HC1 robust standard errors and block bootstrap. Configuration is centralized in `BenchmarkConfig`.
+3. Demand MLP (DemandMLPPipeline) — single global demand-first MLP trained on the dyadic dataset; elasticities via autodiff. Deliberately excludes ICDN's splines, sparse attention, bilinear cross potential, and elasticity penalties. Configuration: MLPConfig.
+
+---
+
+## Ablation study
+
+notebooks/ablation-study.ipynb isolates ICDN component contribution with leave-one-out variants (e.g. full, no_smooth, no_elast, no_attention, no_cross, no_splines, plus constraint / sign variants). Each variant runs a small Optuna search; outputs land in results/ablation_*.
+
+---
+
+## Stress test
+
+notebooks/stress-test.ipynb measures ICDN forward-pass latency and memory across product-count / neighbor-count combinations $(n, k)$ using best-trial hyperparameters and random weights. Results: results/stress_test_icdn.csv.
 
 ---
 

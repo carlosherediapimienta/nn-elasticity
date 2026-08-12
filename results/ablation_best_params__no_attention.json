@@ -1,0 +1,14 @@
+{
+  "variant": "no_attention",
+  "best_trial": 8,
+  "params": {
+    "N_KNOTS": 8,
+    "HIDDEN_KEY": "192_96",
+    "DROPOUT": 0.2782079406694618,
+    "LR_P0": 0.00035768372093450965,
+    "LR_P1": 0.0018918381790558518,
+    "LAMBDA_SMOOTH": 0.05001776267604006,
+    "LAMBDA_ELAST": 3.711382488009845e-05,
+    "BATCH_SIZE": 256
+  }
+}
