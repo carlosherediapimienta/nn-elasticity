@@ -1,0 +1,14 @@
+{
+  "variant": "no_smooth",
+  "best_trial": 9,
+  "params": {
+    "N_KNOTS": 10,
+    "HIDDEN_KEY": "256_128_64",
+    "DROPOUT": 0.1307730167375532,
+    "LR_P0": 0.00022866673890696676,
+    "LR_P1": 0.00048579882124172774,
+    "LAMBDA_SMOOTH": 0.0,
+    "LAMBDA_ELAST": 5.443732677169861e-05,
+    "BATCH_SIZE": 1024
+  }
+}
