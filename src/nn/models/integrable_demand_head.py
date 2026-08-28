@@ -27,6 +27,8 @@ class IntegrableDemandHead(nn.Module):
         dropout=0.0,
         enforce_negative_beta: bool = False,
         use_cross: bool = True,
+        attention_score_mode: str = "scaled_dot",
+        same_category_strict: bool = False,
     ):
         super().__init__()
 
@@ -53,7 +55,12 @@ class IntegrableDemandHead(nn.Module):
 
         # Build the sparse neighbor selector to select the neighbors.
         if use_cross:
-            self.neighbor_selector = SparseNeighborSelector(d_hidden=H, k_neighbors=k_neighbors)
+            self.neighbor_selector = SparseNeighborSelector(
+                d_hidden=H,
+                k_neighbors=k_neighbors,
+                score_mode=attention_score_mode,
+                use_same_category_strict=same_category_strict,
+            )
         else:
             self.neighbor_selector = None
 
