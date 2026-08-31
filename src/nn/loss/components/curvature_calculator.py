@@ -13,6 +13,7 @@ class CurvatureCalculator:
         u: torch.Tensor | None,      # (B, n_cross, K, K) or empty
         Bx: torch.Tensor,     # (B, n, K)
         pairs: torch.Tensor | None,  # (2, n_cross)
+        attn_weights: torch.Tensor | None = None, # (B, n_cross)
     ) -> torch.Tensor:        # (B, n)
 
         # We do curvature in float32 for numerical stability under AMP.
@@ -46,6 +47,9 @@ class CurvatureCalculator:
         # Curvature of the demand curve.
         # κ_i += B''(x_i)^T U^{(ij)} B(x_j)
         contrib = torch.einsum('bpk,bpkl,bpl->bp', ddBx[:, i_idx], u, Bx[:, j_idx])
+        if attn_weights is not None:
+            # k_i = a_ij * k_i
+            contrib = contrib * attn_weights.float()
  
         # Add the contributions to the curvature.
         # This step is exactly the same as the one in the DemandCalculator class.

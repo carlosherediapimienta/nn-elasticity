@@ -50,6 +50,7 @@ class ElasticityLoss(nn.Module):
         Bx: torch.Tensor,        # (B, n, K)
         pairs: torch.Tensor,     # (2, n_cross)
         E: torch.Tensor | None = None,  # (B, n, n) full elasticity matrix — required if lambda_elast > 0
+        attn_weights: torch.Tensor | None = None, # (B, n_cross)
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
         # 1. Fit loss — Huber on observed log-demands only.
@@ -61,7 +62,7 @@ class ElasticityLoss(nn.Module):
 
         # 2. Smoothness penalty — penalises high curvature of own-price demand curves.
         if self.lambda_smooth > 0.0:
-            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, pairs)
+            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, pairs, attn_weights)
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 
@@ -92,21 +93,24 @@ class ElasticityLoss(nn.Module):
             R[diag, diag]   = self.r_own
             rho[diag, diag] = self.rho_own_low
 
-            # Build mask M_{ij} — shape (B, n, n).
-            # Diagonal (own-price): M_{ii} = m_i.
-            # Off-diagonal (cross-price): M_{ij} = m_i · m_j · 1[(i,j) in graph].
-            # The sparse graph membership is implicitly encoded in E: positions not
-            # selected by SparseNeighborSelector are left as zero by DemandCalculator,
-            # so their penalty is zero regardless of the mask value.
-            m = obs_mask.float()                          # (B, n)
-            M = m.unsqueeze(2) * m.unsqueeze(1)           # (B, n, n): m_i · m_j
+            # M_{ij}: observed AND on the graph (diag + selected directed edges).
+            # Inactive off-diagonals of E are structural zeros, not estimates.
+            active = torch.zeros(n, n, dtype=torch.bool, device=E.device)
+            active[diag, diag] = True
+            if pairs is not None and pairs.numel() > 0:
+                active[pairs[0], pairs[1]] = True
 
-            # Compute the per-entry hinge penalties.
-            upper_viol = F.relu(E - R.unsqueeze(0)) ** 2                   # (B, n, n)
-            lower_viol = F.relu(L.unsqueeze(0) - E) ** 2                   # (B, n, n)
-            penalty    = M * (upper_viol + rho.unsqueeze(0) * lower_viol)  # (B, n, n)
+            M = (
+                obs_mask.unsqueeze(2).bool()
+                & obs_mask.unsqueeze(1).bool()
+                & active.unsqueeze(0)
+            )
 
-            N_E        = M.sum().clamp(min=1.0)  # avoid division by zero
+            upper_viol = F.relu(E - R.unsqueeze(0)) ** 2
+            lower_viol = F.relu(L.unsqueeze(0) - E) ** 2
+            penalty    = M.float() * (upper_viol + rho.unsqueeze(0) * lower_viol)
+
+            N_E        = M.float().sum().clamp(min=1.0)
             loss_elast = penalty.sum() / N_E
         else:
             loss_elast = y_hat.new_tensor(0.0)

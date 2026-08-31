@@ -120,6 +120,7 @@ class IntegrableDemandHead(nn.Module):
             attn_weights=attn_weights,
             return_E=return_E,
         )
+        params["attn_weights"] = attn_weights
         if return_E and (E is not None):
             params['E'] = E
         return y_hat, eps_hat, params

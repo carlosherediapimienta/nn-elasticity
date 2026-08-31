@@ -197,7 +197,7 @@ class SparseNeighborSelector(nn.Module):
         liters:   torch.Tensor,
     ) -> torch.Tensor:
         """
-        Accumulate the global mean score matrix (n, n) over all training batches.
+        Averages the (n, n) score matrix over every observation.
 
         Iterates over h_iter — each element is an (B, n, d_hidden) tensor
         already computed by the encoder for one training batch. The caller is
@@ -209,21 +209,21 @@ class SparseNeighborSelector(nn.Module):
         device = next(self.parameters()).device
         not_self, _, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
 
-        acc   = None
-        count = 0
+        score_sum = None
+        n_obs = 0
         for h in h_iter:
             h = h.to(device)
             # Full (B, n, n) matrix needed here: we do not yet know which pairs to keep.
             scores = self._dense_natural_logits(h)
             scores = scores + meta_bonus.unsqueeze(0)
             scores = scores.masked_fill(~not_self.unsqueeze(0), float("-inf"))
-            batch_mean = scores.mean(dim=0)                          # (n, n)
-            acc    = batch_mean if acc is None else acc + batch_mean
-            count += 1
+            batch_sum = scores.sum(dim=0)                            # (n, n)
+            score_sum = batch_sum if score_sum is None else score_sum + batch_sum
+            n_obs += h.shape[0]
 
-        if acc is None or count == 0:
+        if score_sum is None or n_obs == 0:
             raise RuntimeError("accumulate_mean_scores: h_iter was empty.")
-        return acc / count   # (n, n)
+        return score_sum / n_obs   # (n, n)
 
     def freeze_graph(
         self,
