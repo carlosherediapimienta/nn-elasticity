@@ -60,11 +60,12 @@ class MLPConfig:
     """
     control_cols: List[str] = field(default_factory=lambda: BenchmarkConfig().control_cols)
     hidden: tuple = (64, 32)
+    d_store: int = 16
     act: str = "gelu"
     dropout: float = 0.0
     lr: float = 1e-3
     weight_decay: float = 1e-5
     batch_size: int = 256
-    n_epochs: int = 200
-    es_patience: int = 25
+    n_epochs: int = 250
+    es_patience: int = 40
     huber_delta: float = 1.0

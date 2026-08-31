@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import pandas as pd
 import torch
@@ -5,207 +7,277 @@ import torch.nn as nn
 
 from .config import MLPConfig
 
+class MultiproductMLP(nn.Module):
+    """Dense MLP: z = [prices, shared, vec(product feats), brand/style/store emb] → n log-demands.
 
-class _TrainFitCategoryEncoder:
-    """
-    Factorizes a column using ONLY train values; maps val values to the
-    same codes, with unseen categories mapped to a dedicated 'unknown'
-    index. Avoids leakage (never fits on val) and avoids KeyErrors on
-    categories that appear only in validation.
-    """
-    def fit(self, values: pd.Series) -> "_TrainFitCategoryEncoder":
-        self.categories_ = pd.Index(sorted(values.unique()))
-        self._map = {v: i for i, v in enumerate(self.categories_)}
-        self.n_categories = len(self.categories_) + 1  # +1 reserved for "unknown"
-        return self
-
-    def transform(self, values: pd.Series) -> np.ndarray:
-        unknown_idx = len(self.categories_)
-        return values.map(self._map).fillna(unknown_idx).astype(np.int64).values
-
-
-class DemandMLP(nn.Module):
-    """
-    Generic demand-first MLP: y_hat = f_theta(u, x).
-      x = [log_p_i, log_p_j]  -- differentiated to obtain elasticities via autodiff
-      u = [controls, store embedding, upc_i embedding, upc_j embedding]  -- context
-    A SINGLE global model is trained on every (store, pair, upc_i, upc_j)
-    row of the dyadic dataset at once (contrast with
-    RegularizedElasticityPipeline, which fits one model per group). Store
-    and product identity enter only as learned embeddings, replacing the
-    per-group fixed effect / dummy.
-    Deliberately excludes: splines, sparse attention, U_ij bilinear
-    interaction, elasticity penalties/constraints, analytic derivatives.
+    The observation mask is not an input. Elasticities come from autodiff on `prices`.
     """
 
     def __init__(
         self,
-        n_controls: int,
+        n: int,
         n_stores: int,
-        n_upcs: int,
-        config: MLPConfig,
-        d_store: int = 8,
-        d_upc: int = 8,
+        n_brands: int,
+        n_styles: int,
+        n_product_feats: int,
+        n_shared: int = 9,
+        hidden: tuple = (64, 32),
+        act: str = "gelu",
+        dropout: float = 0.0,
+        d_store: int = 16,
+        d_brand: int = 8,
+        d_style: int = 8,
     ):
         super().__init__()
-        act_fn = {"gelu": nn.GELU, "tanh": nn.Tanh, "relu": nn.ReLU}[config.act]
-
+        self.n = n
         self.emb_store = nn.Embedding(n_stores, d_store)
-        self.emb_upc = nn.Embedding(n_upcs, d_upc)  # shared vocabulary: upc_i and upc_j are the same kind of entity
+        self.emb_brand = nn.Embedding(n_brands + 1, d_brand, padding_idx=0)
+        self.emb_style = nn.Embedding(n_styles + 1, d_style, padding_idx=0)
 
-        input_dim = 2 + n_controls + d_store + 2 * d_upc
-        dims = [input_dim] + list(config.hidden)
+        act_fn = {
+            "gelu": nn.GELU,
+            "tanh": nn.Tanh,
+            "silu": nn.SiLU,
+            "softplus": nn.Softplus,
+        }[act]
+        in_dim = (
+            n
+            + n_shared
+            + n * n_product_feats
+            + n * d_brand
+            + n * d_style
+            + d_store
+        )
+        dims = [in_dim] + list(hidden)
         layers = []
         for a, b in zip(dims[:-1], dims[1:]):
-            layers += [nn.Linear(a, b), act_fn(), nn.Dropout(config.dropout)]
-        layers.append(nn.Linear(dims[-1], 1))
+            layers += [nn.Linear(a, b), act_fn(), nn.Dropout(dropout)]
+        layers.append(nn.Linear(dims[-1], n))
         self.net = nn.Sequential(*layers)
 
-    def forward(self, x, controls, store_idx, upc_i_idx, upc_j_idx):
-        # x: (B, 2) = standardized [log_p_i, log_p_j] -- must keep requires_grad
-        # for the caller to compute elasticities via autodiff.
-        e_store = self.emb_store(store_idx)
-        e_i = self.emb_upc(upc_i_idx)
-        e_j = self.emb_upc(upc_j_idx)
-        inp = torch.cat([x, controls, e_store, e_i, e_j], dim=-1)
-        return self.net(inp).squeeze(-1)
+    def _context(self, batch: dict) -> torch.Tensor:
+        """Non-price features. Shape (B, n_shared + n·F + n·d_brand + n·d_style)."""
+        B = batch["ids"].shape[0]
+        n = self.n
+        e_brand = self.emb_brand(batch["per_prod_cat"][:, :, 0]).reshape(B, n * self.emb_brand.embedding_dim)
+        e_style = self.emb_style(batch["per_prod_cat"][:, :, 1]).reshape(B, n * self.emb_style.embedding_dim)
+        xp = batch["per_prod_float"].reshape(B, -1)
+        return torch.cat([batch["time_feats"], batch["promo_feats"], xp, e_brand, e_style], dim=-1)
+
+    def forward(self, prices: torch.Tensor, batch: dict) -> torch.Tensor:
+        """
+        Args:
+            prices: (B, n) log-prices — keep requires_grad for elasticities.
+            batch:  MultiProductDataset batch (ids, time_feats, promo_feats, ...).
+        Returns:
+            y_hat: (B, n)
+        """
+        e_store = self.emb_store(batch["ids"][:, 0])
+        z = torch.cat([prices, self._context(batch), e_store], dim=-1)
+        return self.net(z)
+
 
 
 class DemandMLPPipeline:
-    """
-    Trains a SINGLE global DemandMLP pooling every (store, pair) row of the
-    dyadic dataset at once. Elasticities are computed via autodiff on the
-    validation set:
-        own_elasticity   = d y_hat / d log_p_i
-        cross_elasticity = d y_hat / d log_p_j
-    (contrast with OLS/Ridge, whose elasticity is a FIXED coefficient per
-    group; the MLP's elasticity is a point estimate that varies per
-    observation -- non-linear, like ICDN's E matrix, but obtained by
-    generic backward-mode autodiff instead of a closed-form spline formula).
-    Public API: run(train_df, val_df) -> (metrics: dict, elasticities: pd.DataFrame)
-    """
+    """Fit a MultiproductMLP on ICDN-style DataLoaders. Elasticities come in a later step."""
 
-    def __init__(self, config: MLPConfig, device: str = "cpu", seed: int = 42):
+    def __init__(
+        self,
+        config: MLPConfig,
+        n: int,
+        n_stores: int,
+        n_brands: int,
+        n_styles: int,
+        n_product_feats: int,
+        device: str | None = None,
+        seed: int = 42,
+    ):
         self.config = config
-        self.device = device
+        self.n = n
+        self.n_stores = n_stores
+        self.n_brands = n_brands
+        self.n_styles = n_styles
+        self.n_product_feats = n_product_feats
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.seed = seed
+        self.model: MultiproductMLP | None = None
+        self.best_val_loss: float | None = None
 
-    def run(self, train_df: pd.DataFrame, val_df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
-        torch.manual_seed(self.seed)
+    def _build_model(self) -> MultiproductMLP:
         cfg = self.config
-
-        needed_cols = (
-            ["store_code", "pair_id", "upc_i", "upc_j", "week_id", "log_v_i", "log_p_i", "log_p_j"]
-            + cfg.control_cols
-        )
-        train_df = train_df[needed_cols].dropna().reset_index(drop=True)
-        val_df = val_df[needed_cols].dropna().reset_index(drop=True)
-
-        # ── Categorical encoders (fit on TRAIN only) ─────────────────────
-        store_enc = _TrainFitCategoryEncoder().fit(train_df["store_code"])
-        upc_enc = _TrainFitCategoryEncoder().fit(
-            pd.concat([train_df["upc_i"], train_df["upc_j"]])
-        )
-
-        def _cat_tensors(df):
-            return (
-                torch.tensor(store_enc.transform(df["store_code"]), dtype=torch.long),
-                torch.tensor(upc_enc.transform(df["upc_i"]), dtype=torch.long),
-                torch.tensor(upc_enc.transform(df["upc_j"]), dtype=torch.long),
-            )
-
-        # ── Continuous features: standardize using TRAIN only ─────────────
-        cont_cols = ["log_p_i", "log_p_j"] + cfg.control_cols
-        mean = train_df[cont_cols].mean()
-        std = train_df[cont_cols].std().replace(0, 1.0)
-
-        def _cont_tensor(df):
-            z = (df[cont_cols] - mean) / std
-            return torch.tensor(z.values, dtype=torch.float32)
-
-        Xtr_cont = _cont_tensor(train_df).to(self.device)
-        Xval_cont = _cont_tensor(val_df).to(self.device)
-        store_tr, upc_i_tr, upc_j_tr = (t.to(self.device) for t in _cat_tensors(train_df))
-        store_val, upc_i_val, upc_j_val = (t.to(self.device) for t in _cat_tensors(val_df))
-        ytr = torch.tensor(train_df["log_v_i"].values, dtype=torch.float32, device=self.device)
-        yval = torch.tensor(val_df["log_v_i"].values, dtype=torch.float32, device=self.device)
-
-        model = DemandMLP(
-            n_controls=len(cfg.control_cols),
-            n_stores=store_enc.n_categories,
-            n_upcs=upc_enc.n_categories,
-            config=cfg,
+        return MultiproductMLP(
+            n=self.n,
+            n_stores=self.n_stores,
+            n_brands=self.n_brands,
+            n_styles=self.n_styles,
+            n_product_feats=self.n_product_feats,
+            hidden=cfg.hidden,
+            act=cfg.act,
+            dropout=cfg.dropout,
+            d_store=cfg.d_store,
         ).to(self.device)
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-        huber = nn.HuberLoss(delta=cfg.huber_delta)
+    @staticmethod
+    def _masked_huber(huber: nn.Module, y_hat, y, w):
+        # w = obs_mask. Same as ICDN: Huber only on observed cells.
+        return (huber(y_hat, y) * w).sum() / w.sum().clamp_min(1.0)
 
-        best_val_loss, no_improve, best_state = float("inf"), 0, None
-        n_train = len(train_df)
+    def _move(self, batch: dict) -> dict:
+        return {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
 
-        for _epoch in range(cfg.n_epochs):
+    @staticmethod
+    def _seed_everything(seed: int) -> None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    def fit(self, train_loader, val_loader) -> "DemandMLPPipeline":
+        self._seed_everything(self.seed)
+        cfg = self.config
+        model = self._build_model()
+        opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+        sch = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            opt, mode="min", factor=0.5, patience=20, min_lr=1e-5,
+        )
+        huber = nn.HuberLoss(delta=cfg.huber_delta, reduction="none")
+
+        best_val, no_improve, best_state = float("inf"), 0, None
+
+        for epoch in range(1, cfg.n_epochs + 1):
             model.train()
-            perm = torch.randperm(n_train, device=self.device)
-            for start in range(0, n_train, cfg.batch_size):
-                idx = perm[start:start + cfg.batch_size]
-                optimizer.zero_grad()
-                y_hat = model(
-                    Xtr_cont[idx, :2], Xtr_cont[idx, 2:],
-                    store_tr[idx], upc_i_tr[idx], upc_j_tr[idx],
-                )
-                loss = huber(y_hat, ytr[idx])
+            for batch in train_loader:
+                batch = self._move(batch)
+                opt.zero_grad()
+                y_hat = model(batch["prices"], batch)
+                loss = self._masked_huber(huber, y_hat, batch["demands"], batch["obs_mask"])
                 loss.backward()
-                optimizer.step()
+                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
 
             model.eval()
+            val_sum, val_den = 0.0, 0.0
             with torch.no_grad():
-                y_hat_val = model(Xval_cont[:, :2], Xval_cont[:, 2:], store_val, upc_i_val, upc_j_val)
-                val_loss = huber(y_hat_val, yval).item()
+                for batch in val_loader:
+                    batch = self._move(batch)
+                    w = batch["obs_mask"]
+                    y_hat = model(batch["prices"], batch)
+                    val_sum += float(self._masked_huber(huber, y_hat, batch["demands"], w).item()) * float(w.sum())
+                    val_den += float(w.sum())
+            val_loss = val_sum / max(val_den, 1.0)
+            prev_lr = opt.param_groups[0]["lr"]
+            sch.step(val_loss)
+            if opt.param_groups[0]["lr"] < prev_lr:
+                no_improve = 0
 
-            if val_loss < best_val_loss:
-                best_val_loss, no_improve = val_loss, 0
-                best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            if val_loss < best_val:
+                best_val, no_improve = val_loss, 0
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
             else:
                 no_improve += 1
-            if no_improve >= cfg.es_patience:
-                break
+                if no_improve >= cfg.es_patience:
+                    print(f"early stop at epoch {epoch}")
+                    break
 
-        model.load_state_dict(best_state)
+        if best_state is not None:
+            model.load_state_dict(best_state)
         model.eval()
+        self.model = model
+        self.best_val_loss = best_val
+        return self
 
-        # ── Metrics on val ────────────────────────────────────────────────
+    def metrics(self, loader) -> dict:
+        """MAE / RMSE / R² on observed cells only. No elasticities yet."""
+        if self.model is None:
+            raise RuntimeError("fit() first")
+        self.model.eval()
+        ys, ps = [], []
         with torch.no_grad():
-            y_hat_val = model(Xval_cont[:, :2], Xval_cont[:, 2:], store_val, upc_i_val, upc_j_val)
-        residuals = (yval - y_hat_val).cpu().numpy()
-        mae_val = float(np.mean(np.abs(residuals)))
-        rmse_val = float(np.sqrt(np.mean(residuals ** 2)))
-        ss_res = float(np.sum(residuals ** 2))
-        yval_np = yval.cpu().numpy()
-        ss_tot = float(np.sum((yval_np - yval_np.mean()) ** 2))
-        r2_val = np.nan if ss_tot == 0 else 1 - ss_res / ss_tot
-
-        # ── Elasticities via autodiff (own = dy/d log_p_i, cross = dy/d log_p_j) ──
-        x_val_grad = Xval_cont[:, :2].clone().requires_grad_(True)
-        y_hat_grad = model(x_val_grad, Xval_cont[:, 2:], store_val, upc_i_val, upc_j_val)
-        grad_x, = torch.autograd.grad(y_hat_grad.sum(), x_val_grad, create_graph=False)
-        # x was standardized: z = (log_p - mean) / std  =>  dy/d(log_p) = (dy/dz) / std
-        own_elasticity = (grad_x[:, 0] / std["log_p_i"]).detach().cpu().numpy()
-        cross_elasticity = (grad_x[:, 1] / std["log_p_j"]).detach().cpu().numpy()
-
-        elasticities = pd.DataFrame({
-            "store_code": val_df["store_code"].values,
-            "pair_id": val_df["pair_id"].values,
-            "upc_i": val_df["upc_i"].values,
-            "upc_j": val_df["upc_j"].values,
-            "week_id": val_df["week_id"].values,
-            "own_elasticity": own_elasticity,
-            "cross_elasticity": cross_elasticity,
-            "y_true_i": val_df["log_v_i"].values,
-            "y_hat_i": y_hat_grad.detach().cpu().numpy(),
-        })
-
-        metrics = {
-            "mae_val": mae_val, "rmse_val": rmse_val, "r2_val": r2_val,
-            "best_val_loss": best_val_loss,
+            for batch in loader:
+                batch = self._move(batch)
+                y_hat = self.model(batch["prices"], batch)
+                m = batch["obs_mask"].bool()
+                ys.append(batch["demands"][m].cpu())
+                ps.append(y_hat[m].cpu())
+        y = torch.cat(ys).numpy()
+        p = torch.cat(ps).numpy()
+        resid = y - p
+        ss_tot = float(np.sum((y - y.mean()) ** 2)) if y.size else 0.0
+        return {
+            "mae_val": float(np.mean(np.abs(resid))) if y.size else np.nan,
+            "rmse_val": float(np.sqrt(np.mean(resid ** 2))) if y.size else np.nan,
+            "r2_val": np.nan if ss_tot == 0 else float(1.0 - np.sum(resid ** 2) / ss_tot),
+            "best_val_loss": self.best_val_loss,
+            "n_cells": int(y.size),
         }
-        return metrics, elasticities
+    def elasticity_score(
+        self,
+        loader,
+        own_min: float = -5.0,
+        own_max: float = 0.0,
+        cross_min: float = -1.0,
+        cross_max: float = 1.0,
+        beta_eda: float = -2.0,
+    ) -> dict:
+        """ICDN `compute_elasticity_score` on the dense Jacobian.
+
+        Own = diagonal on observed i. Cross = off-diagonal on observed (i, j).
+        No neighbor graph: the MLP has none.
+        """
+        if self.model is None:
+            raise RuntimeError("fit() first")
+        model = self.model
+        model.eval()
+        n = self.n
+        all_own, all_cross = [], []
+
+        for batch in loader:
+            batch = self._move(batch)
+            prices = batch["prices"].detach().clone().requires_grad_(True)
+            y_hat = model(prices, batch)
+            grads = []
+            for i in range(n):
+                g, = torch.autograd.grad(
+                    y_hat[:, i].sum(), prices, retain_graph=True,
+                )
+                grads.append(g)
+            E = torch.stack(grads, dim=1)  # (B, n, n)
+            m = batch["obs_mask"].bool()
+            eye = torch.eye(n, dtype=torch.bool, device=E.device)
+
+            all_own.append(torch.diagonal(E, dim1=1, dim2=2)[m].detach().cpu())
+            pair = m.unsqueeze(2) & m.unsqueeze(1) & ~eye
+            all_cross.append(E[pair].detach().cpu())
+
+        own = torch.cat(all_own).numpy() if all_own else np.array([])
+        cross = torch.cat(all_cross).numpy() if all_cross else np.array([])
+
+        if own.size:
+            own_in_range = float(((own >= own_min) & (own <= own_max)).mean())
+            median_own = float(np.median(own))
+            deviation = max(0.0, abs(median_own - beta_eda) - 0.3)
+            prior_penalty = min(deviation / abs(beta_eda), 1.0)
+        else:
+            own_in_range, median_own, prior_penalty = 0.0, np.nan, 1.0
+        own_score = own_in_range * (1.0 - prior_penalty)
+
+        if cross.size:
+            cross_in_range = float(((cross >= cross_min) & (cross <= cross_max)).mean())
+            median_cross = float(np.median(cross))
+        else:
+            cross_in_range, median_cross = 1.0, np.nan
+
+        return {
+            "elast_score": float(0.7 * own_score + 0.3 * cross_in_range),
+            "own_score": float(own_score),
+            "own_in_range": float(own_in_range),
+            "own_elasticity_median": median_own,
+            "cross_in_range": float(cross_in_range),
+            "cross_elasticity_median": median_cross,
+        }
+    
+    def evaluate(self, loader, store_cats, upc_names, week_cats=None):
+        return self.metrics(loader), self.elasticities(
+            loader, store_cats, upc_names, week_cats=week_cats,
+        )
