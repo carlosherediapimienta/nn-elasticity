@@ -211,6 +211,7 @@ class DemandMLPPipeline:
             "best_val_loss": self.best_val_loss,
             "n_cells": int(y.size),
         }
+        
     def elasticity_score(
         self,
         loader,
@@ -277,6 +278,61 @@ class DemandMLPPipeline:
             "cross_elasticity_median": median_cross,
         }
     
+
+    def elasticities(self, loader, store_cats, upc_names, week_cats=None):
+        """Per-cell Jacobian: one row per observed (i, j). Own = diagonal, cross = off-diagonal."""
+        if self.model is None:
+            raise RuntimeError("fit() first")
+        model = self.model
+        model.eval()
+        n = self.n
+        upc_names = np.asarray(upc_names)
+        store_cats = np.asarray(store_cats)
+        week_cats = None if week_cats is None else np.asarray(week_cats)
+        rows = []
+
+        for batch in loader:
+            batch = self._move(batch)
+            prices = batch["prices"].detach().clone().requires_grad_(True)
+            y_hat = model(prices, batch)
+            grads = []
+            for i in range(n):
+                g, = torch.autograd.grad(
+                    y_hat[:, i].sum(), prices, retain_graph=True,
+                )
+                grads.append(g)
+            E = torch.stack(grads, dim=1).detach().cpu().numpy()  # (B, n, n)
+
+            mask = batch["obs_mask"].bool().cpu().numpy()
+            store_idx = batch["ids"][:, 0].cpu().numpy()
+            week_idx = batch["ids"][:, 1].cpu().numpy()
+            y_true = batch["demands"].detach().cpu().numpy()
+            y_hat_np = y_hat.detach().cpu().numpy()
+
+            for b in range(E.shape[0]):
+                sc = store_cats[store_idx[b]]
+                wc = None if week_cats is None else week_cats[week_idx[b]]
+                for i in range(n):
+                    if not mask[b, i]:
+                        continue
+                    for j in range(n):
+                        if not mask[b, j]:
+                            continue
+                        row = {
+                            "store_code": sc,
+                            "upc_i": upc_names[i],
+                            "upc_j": upc_names[j],
+                            "type": "own" if i == j else "cross",
+                            "E": float(E[b, i, j]),
+                            "y_true_i": float(y_true[b, i]),
+                            "y_hat_i": float(y_hat_np[b, i]),
+                        }
+                        if wc is not None:
+                            row["week_id"] = wc
+                        rows.append(row)
+
+        return pd.DataFrame(rows)
+
     def evaluate(self, loader, store_cats, upc_names, week_cats=None):
         return self.metrics(loader), self.elasticities(
             loader, store_cats, upc_names, week_cats=week_cats,

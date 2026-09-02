@@ -67,7 +67,7 @@ class SplineBuilder:
             config = {
                 "knots": knots,
                 "mean": stats["mean"],
-                "std": stats["stad"],
+                "std": stats["std"],
                 "basis_type": basis_type
             }
         elif basis_type == "natural_cubic":
