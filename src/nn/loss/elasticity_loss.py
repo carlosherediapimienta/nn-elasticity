@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .components import FitLoss, SmoothnessPenalty
+from .elasticity_mask import elasticity_entry_mask
 
 class ElasticityLoss(nn.Module):
     """
@@ -103,15 +104,11 @@ class ElasticityLoss(nn.Module):
 
             # M_{ij}: observed AND on the graph (diag + selected directed edges).
             # Inactive off-diagonals of E are structural zeros, not estimates.
-            active = torch.zeros(n, n, dtype=torch.bool, device=E.device)
-            active[diag, diag] = True
-            if pairs is not None and pairs.numel() > 0:
-                active[pairs[0], pairs[1]] = True
-
-            M = (
-                obs_mask.unsqueeze(2).bool()
-                & obs_mask.unsqueeze(1).bool()
-                & active.unsqueeze(0)
+            M = elasticity_entry_mask(
+                obs_mask, pairs=pairs,
+                availability=availability,
+                price_observed=price_observed,
+                include_diag=True,
             )
 
             upper_viol = F.relu(E - R.unsqueeze(0)) ** 2

@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from .config import MLPConfig
+from src.nn.loss.elasticity_mask import elasticity_entry_mask
 
 class MultiproductMLP(nn.Module):
     """Dense MLP: z = [prices, shared, vec(product feats), brand/style/store emb] → n log-demands.
@@ -238,6 +239,10 @@ class DemandMLPPipeline:
         n = self.n
         all_own, all_cross = [], []
 
+        idx = torch.arange(n, device=self.device)
+        pairs_dense = torch.stack([idx.repeat_interleave(n), idx.repeat(n)])
+        pairs_dense = pairs_dense[:, pairs_dense[0] != pairs_dense[1]]
+
         for batch in loader:
             batch = self._move(batch)
             prices = batch["prices"].detach().clone().requires_grad_(True)
@@ -249,12 +254,17 @@ class DemandMLPPipeline:
                 )
                 grads.append(g)
             E = torch.stack(grads, dim=1)  # (B, n, n)
-            m = batch["obs_mask"].bool() & batch["price_observed"].bool()
+            M = elasticity_entry_mask(
+                batch["obs_mask"],
+                pairs=pairs_dense,
+                availability=batch["availability"],
+                price_observed=batch["price_observed"],
+                include_diag=True,
+            )
             eye = torch.eye(n, dtype=torch.bool, device=E.device)
-
-            all_own.append(torch.diagonal(E, dim1=1, dim2=2)[m].detach().cpu())
-            pair = m.unsqueeze(2) & m.unsqueeze(1) & ~eye
-            all_cross.append(E[pair].detach().cpu())
+            own_m = torch.diagonal(M, dim1=1, dim2=2)
+            all_own.append(torch.diagonal(E, dim1=1, dim2=2)[own_m].detach().cpu())
+            all_cross.append(E[M & ~eye.unsqueeze(0)].detach().cpu())
 
         own = torch.cat(all_own).numpy() if all_own else np.array([])
         cross = torch.cat(all_cross).numpy() if all_cross else np.array([])
@@ -285,7 +295,7 @@ class DemandMLPPipeline:
     
 
     def elasticities(self, loader, store_cats, upc_names, week_cats=None):
-        """Per-cell Jacobian: one row per observed (i, j). Own = diagonal, cross = off-diagonal."""
+        """Per-cell Jacobian: one row per valid (i, j). Own = diagonal, cross = off-diagonal."""
         if self.model is None:
             raise RuntimeError("fit() first")
         model = self.model
@@ -295,6 +305,12 @@ class DemandMLPPipeline:
         store_cats = np.asarray(store_cats)
         week_cats = None if week_cats is None else np.asarray(week_cats)
         rows = []
+
+        # MLP is dense: no neighbor graph. Off-diagonal pairs so the shared
+        # mask includes cross-price cells, not only the diagonal.
+        idx = torch.arange(n, device=self.device)
+        pairs_dense = torch.stack([idx.repeat_interleave(n), idx.repeat(n)])
+        pairs_dense = pairs_dense[:, pairs_dense[0] != pairs_dense[1]]
 
         for batch in loader:
             batch = self._move(batch)
@@ -308,21 +324,25 @@ class DemandMLPPipeline:
                 grads.append(g)
             E = torch.stack(grads, dim=1).detach().cpu().numpy()  # (B, n, n)
 
-            mask = batch["obs_mask"].bool().cpu().numpy()
-            pobs = batch["price_observed"].cpu().numpy().astype(bool)
             store_idx = batch["ids"][:, 0].cpu().numpy()
             week_idx = batch["ids"][:, 1].cpu().numpy()
             y_true = batch["demands"].detach().cpu().numpy()
             y_hat_np = y_hat.detach().cpu().numpy()
 
+            M = elasticity_entry_mask(
+                batch["obs_mask"],
+                pairs=pairs_dense,
+                availability=batch["availability"],
+                price_observed=batch["price_observed"],
+                include_diag=True,
+            ).cpu().numpy()
+
             for b in range(E.shape[0]):
                 sc = store_cats[store_idx[b]]
                 wc = None if week_cats is None else week_cats[week_idx[b]]
                 for i in range(n):
-                    if not mask[b, i] or not pobs[b, i]:
-                        continue
                     for j in range(n):
-                        if not mask[b, j] or not pobs[b, j]:
+                        if not M[b, i, j]:
                             continue
                         row = {
                             "store_code": sc,
