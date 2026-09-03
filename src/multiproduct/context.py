@@ -10,10 +10,11 @@ _TIME_COLS = [
 ] 
 
 # Shared promo features by (store, week).
-_PROMO_COLS = ["on_promo", "promo_intensity_store_week"] 
+_PROMO_COLS = ["promo_intensity_store_week"] 
 
 # Suffixes of columns by product: {suffix}_{i}
 _PER_PRODUCT_COLS = [
+    "on_promo",
     "lag_1", "lag_2", "lag_4",
     "roll_4", "roll_13",
     "miss_lag_1", "miss_lag_2", "miss_lag_4",

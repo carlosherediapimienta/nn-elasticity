@@ -186,6 +186,16 @@ class SparseNeighborSelector(nn.Module):
         combined = torch.tanh(Q_i + K_j) # (B, E, d_attn)
         return self.v_score(combined).squeeze(-1) # (B, E)
 
+    def _softmax_available(self, edge_logits, pairs, availability, B, n, k_eff):
+        """edge_logits: (B, n, k_eff). availability: (B, n)."""
+        j_idx = pairs[1]
+        avail_j = availability[:, j_idx].view(B, n, k_eff).bool()
+        edge_logits = edge_logits.masked_fill(~avail_j, float("-inf"))
+        weights = F.softmax(edge_logits, dim=-1)
+        all_gone = ~avail_j.any(dim=-1)                 # (B, n)
+        weights = weights.masked_fill(all_gone.unsqueeze(-1), 0.0)
+        return weights.reshape(B, n * k_eff)
+
 
     @torch.no_grad()
     def accumulate_mean_scores(
@@ -314,6 +324,7 @@ class SparseNeighborSelector(nn.Module):
         brand: torch.Tensor,     # (n,) int
         style: torch.Tensor,     # (n,) int
         liters: torch.Tensor,    # (n,) float
+        availability: torch.Tensor, # (B, n) bool
     ) -> tuple[torch.Tensor, torch.Tensor]:
         B, n, _ = h.shape
         device  = h.device
@@ -333,7 +344,7 @@ class SparseNeighborSelector(nn.Module):
             edge_logits = self._edge_neural_logits(h, pairs) # (B, E)
             edge_logits = edge_logits + self.frozen_edge_bonus.unsqueeze(0)        # (B, E)
             edge_logits = edge_logits.view(B, n, k_eff)                            # (B, n, k_eff)
-            edge_weights = F.softmax(edge_logits, dim=-1).reshape(B, E)           # (B, E)
+            edge_weights = self._softmax_available(edge_logits, pairs, availability, B, n, k_eff) # (B, E)
             return pairs, edge_weights
 
         not_self, same_cat, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
@@ -359,7 +370,7 @@ class SparseNeighborSelector(nn.Module):
         k_eff = E // n
         # Reshape to (B, n, k_eff) to apply softmax per focal product i
         edge_logits  = scores[:, i_idx, j_idx].view(B, n, k_eff)  # (B, n, k_eff)
-        edge_weights = F.softmax(edge_logits, dim=-1).reshape(B, E)  # (B, E)
+        edge_weights = self._softmax_available(edge_logits, pairs, availability, B, n, k_eff)  # (B, E)
 
         return pairs, edge_weights  # (2, E), (B, E)
 

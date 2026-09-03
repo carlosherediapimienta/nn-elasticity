@@ -4,20 +4,17 @@ from .curvature_calculator import CurvatureCalculator
 class SmoothnessPenalty:
     """
     Regularization penalty that discourages highly curved demand curves.
-    Computes the mean squared second derivative of predicted log-demand with
-    respect to log-price, averaged over products and batch:
-        L_smooth = mean_{b,i} [ (d^2log q_i / d log p_i^2)^2 ]
-    Both own-price spline curvature (via w, ddBx, dddBx) and cross-price
-    interaction contributions (via u, Bx, IBx) are included in the curvature
-    estimate through CurvatureCalculator.
-    A higher penalty drives the model toward smoother, more monotone demand
-    curves and reduces overfitting in low-data price regions.
-    Public API:
-        run(w, ddBx, dddBx, u, Bx, IBx, pairs) -> torch.Tensor (scalar)
+
+        L_smooth = sum_{b,i} m_{bi} kappa_{bi}^2  /  sum_{b,i} m_{bi}
+
+    where kappa_i = d^2 log q_i / d log p_i^2 (own spline + cross interactions)
+    and m is obs_mask: unobserved demand cells do not enter the mean.
+
+    Cross-term contributions to kappa are zeroed for unavailable j inside
+    CurvatureCalculator (availability_j). Do not re-average over (i, j) here.
     """
 
     def __init__(self):
-        # Curvature calculator to compute the curvature of the demand curve.
         self.curvature_calc = CurvatureCalculator()
 
     def run(
@@ -27,9 +24,20 @@ class SmoothnessPenalty:
         u: torch.Tensor,      # (B, n_cross, K, K)
         Bx: torch.Tensor,     # (B, n, K)
         pairs: torch.Tensor,  # (2, n_cross)
-        attn_weights: torch.Tensor | None = None, # (B, n_cross)
+        attn_weights: torch.Tensor | None = None,  # (B, n_cross)
+        availability: torch.Tensor | None = None,  # (B, n)
+        obs_mask: torch.Tensor | None = None,      # (B, n)
+        price_observed: torch.Tensor | None = None,  # (B, n), optional
     ) -> torch.Tensor:
-        # Compute the curvature of the demand curve.
-        kappa = self.curvature_calc.run(w, ddBx, u, Bx, pairs, attn_weights)  # (B, n)
-        # Return the mean of the squared curvature.
-        return (kappa ** 2).mean()
+        kappa = self.curvature_calc.run(
+            w, ddBx, u, Bx, pairs, attn_weights, availability,
+        )  # (B, n)
+
+        if obs_mask is None:
+            return kappa.square().mean()
+
+        m = obs_mask.to(dtype=kappa.dtype)
+        if price_observed is not None:
+            m = m * price_observed.to(dtype=kappa.dtype)
+
+        return (kappa.square() * m).sum() / m.sum().clamp_min(1.0)

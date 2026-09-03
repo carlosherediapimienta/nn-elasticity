@@ -20,7 +20,7 @@ class MultiproductMLP(nn.Module):
         n_brands: int,
         n_styles: int,
         n_product_feats: int,
-        n_shared: int = 9,
+        n_shared: int = 8,
         hidden: tuple = (64, 32),
         act: str = "gelu",
         dropout: float = 0.0,
@@ -61,7 +61,10 @@ class MultiproductMLP(nn.Module):
         n = self.n
         e_brand = self.emb_brand(batch["per_prod_cat"][:, :, 0]).reshape(B, n * self.emb_brand.embedding_dim)
         e_style = self.emb_style(batch["per_prod_cat"][:, :, 1]).reshape(B, n * self.emb_style.embedding_dim)
-        xp = batch["per_prod_float"].reshape(B, -1)
+        xp = torch.cat(
+            [batch["per_prod_float"], batch["availability"].unsqueeze(-1)],
+            dim=-1,
+        ).reshape(B, -1)
         return torch.cat([batch["time_feats"], batch["promo_feats"], xp, e_brand, e_style], dim=-1)
 
     def forward(self, prices: torch.Tensor, batch: dict) -> torch.Tensor:
@@ -72,6 +75,8 @@ class MultiproductMLP(nn.Module):
         Returns:
             y_hat: (B, n)
         """
+        avail = batch["availability"]
+        prices = prices * avail                   
         e_store = self.emb_store(batch["ids"][:, 0])
         z = torch.cat([prices, self._context(batch), e_store], dim=-1)
         return self.net(z)
@@ -244,7 +249,7 @@ class DemandMLPPipeline:
                 )
                 grads.append(g)
             E = torch.stack(grads, dim=1)  # (B, n, n)
-            m = batch["obs_mask"].bool()
+            m = batch["obs_mask"].bool() & batch["price_observed"].bool()
             eye = torch.eye(n, dtype=torch.bool, device=E.device)
 
             all_own.append(torch.diagonal(E, dim1=1, dim2=2)[m].detach().cpu())
@@ -304,6 +309,7 @@ class DemandMLPPipeline:
             E = torch.stack(grads, dim=1).detach().cpu().numpy()  # (B, n, n)
 
             mask = batch["obs_mask"].bool().cpu().numpy()
+            pobs = batch["price_observed"].cpu().numpy().astype(bool)
             store_idx = batch["ids"][:, 0].cpu().numpy()
             week_idx = batch["ids"][:, 1].cpu().numpy()
             y_true = batch["demands"].detach().cpu().numpy()
@@ -313,10 +319,10 @@ class DemandMLPPipeline:
                 sc = store_cats[store_idx[b]]
                 wc = None if week_cats is None else week_cats[week_idx[b]]
                 for i in range(n):
-                    if not mask[b, i]:
+                    if not mask[b, i] or not pobs[b, i]:
                         continue
                     for j in range(n):
-                        if not mask[b, j]:
+                        if not mask[b, j] or not pobs[b, j]:
                             continue
                         row = {
                             "store_code": sc,

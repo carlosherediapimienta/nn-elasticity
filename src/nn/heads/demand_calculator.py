@@ -20,6 +20,7 @@ class DemandCalculator:
         u: torch.Tensor,           # (B, n_cross, K, K)
         pairs: torch.Tensor,       # (2, n_cross)
         attn_weights: torch.Tensor | None = None,  # (B, n_cross)
+        availability: torch.Tensor | None = None,  # (B, n) bool
         return_E: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """
@@ -93,6 +94,11 @@ class DemandCalculator:
             contrib_yi = contrib_yi * attn_weights.to(Bx.dtype)
             contrib_ei = contrib_ei * attn_weights.to(Bx.dtype)
 
+        if availability is not None:
+            avail_j = availability[:, j_idx].to(contrib_yi.dtype)
+            contrib_yi = contrib_yi * avail_j
+            contrib_ei = contrib_ei * avail_j
+
         # Recall that: .einsum() is a way to perform a sum of products of tensors.
         # For instance, if we have:
         # a = torch.tensor([[1, 2], [3, 4]])
@@ -165,6 +171,9 @@ class DemandCalculator:
             # If attn_weights is not None, we multiply the contributions by the attention weights.
             if attn_weights is not None:
                 E_cross = E_cross * attn_weights.to(E.dtype)
+
+            if availability is not None:
+                E_cross = E_cross * availability[:, j_idx].to(E_cross.dtype)
 
             # With directed pairs (i, j), off-diagonal elasticities are directional:
             # E_{ij} and E_{ji} are learned independently (no enforced symmetry).

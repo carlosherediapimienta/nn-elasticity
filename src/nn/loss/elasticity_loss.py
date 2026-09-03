@@ -51,6 +51,8 @@ class ElasticityLoss(nn.Module):
         pairs: torch.Tensor,     # (2, n_cross)
         E: torch.Tensor | None = None,  # (B, n, n) full elasticity matrix — required if lambda_elast > 0
         attn_weights: torch.Tensor | None = None, # (B, n_cross)
+        availability: torch.Tensor | None = None, # (B, n) bool
+        price_observed: torch.Tensor | None = None, # (B, n) bool
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
         # 1. Fit loss — Huber on observed log-demands only.
@@ -62,7 +64,13 @@ class ElasticityLoss(nn.Module):
 
         # 2. Smoothness penalty — penalises high curvature of own-price demand curves.
         if self.lambda_smooth > 0.0:
-            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, pairs, attn_weights)
+            loss_smooth = self.smoothness_penalty.run(
+                w, ddBx, u, Bx, pairs,
+                attn_weights=attn_weights,
+                availability=availability,
+                obs_mask=obs_mask,
+                price_observed=price_observed,
+            )
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 
@@ -112,21 +120,30 @@ class ElasticityLoss(nn.Module):
 
             N_E        = M.float().sum().clamp(min=1.0)
             loss_elast = penalty.sum() / N_E
+            n_elast    = N_E
         else:
             loss_elast = y_hat.new_tensor(0.0)
+            n_elast    = loss_fit.new_tensor(0.0)
+
+        n_obs = obs_mask.to(dtype=loss_fit.dtype).sum()
+        if price_observed is not None:
+            n_smooth = (obs_mask * price_observed).to(dtype=loss_fit.dtype).sum()
+        else:
+            n_smooth = n_obs
 
         loss = (loss_fit
                 + self.lambda_smooth * loss_smooth
                 + self.lambda_elast  * loss_elast)
 
-        # Monitoring stats — detached to free the computation graph.
-        # eps_hat is the diagonal of E; fall back to zeros if E is not available.
         eps_hat = E[:, diag, diag].detach() if E is not None else y_hat.new_zeros(y_hat.shape)
         logs = {
             "loss":        loss.detach(),
             "loss_fit":    loss_fit.detach(),
             "loss_smooth": loss_smooth.detach(),
             "loss_elast":  loss_elast.detach(),
+            "n_obs":       n_obs.detach(),
+            "n_smooth":    n_smooth.detach(),
+            "n_elast":     n_elast.detach(),
             "eps_mean":    eps_hat.mean(),
             "eps_p50":     eps_hat.median(),
             "obs_frac":    obs_mask.mean().detach(),

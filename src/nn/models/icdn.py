@@ -51,6 +51,7 @@ class ICDN(nn.Module):
         # Compute the spline bases, derivatives, and antiderivatives.
         Bx, dBx, ddBx = self.price_splines(x)
         # Compute the predicted demand and elasticity.
+        availability = batch["availability"]
         y_hat, eps_hat, aux = self.head.run(
             tokens=tokens,
             x=x,
@@ -58,6 +59,7 @@ class ICDN(nn.Module):
             dBx=dBx,
             return_E=compute_E,
             neighbor_meta=neighbor_meta,
+            availability=availability,
         )
 
         if return_parts:

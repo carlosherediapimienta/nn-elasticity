@@ -72,6 +72,7 @@ class IntegrableDemandHead(nn.Module):
         dBx: torch.Tensor,
         return_E: bool = False,
         neighbor_meta: dict[str, torch.Tensor] | None = None,
+        availability: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
         # ── Step 1: Compute the latent representation h from the context c.
@@ -91,6 +92,7 @@ class IntegrableDemandHead(nn.Module):
                 brand=neighbor_meta["brand"],
                 style=neighbor_meta["style"],
                 liters=neighbor_meta["liters"],
+                availability=availability,
             )
 
         # ── Step 2: Compute the parameters b, beta, w, u from the latent representation h.
@@ -119,6 +121,7 @@ class IntegrableDemandHead(nn.Module):
             pairs=params['pairs'],
             attn_weights=attn_weights,
             return_E=return_E,
+            availability=availability,
         )
         params["attn_weights"] = attn_weights
         if return_E and (E is not None):

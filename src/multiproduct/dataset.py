@@ -27,10 +27,11 @@ class MultiProductDataset(Dataset):
     ]
 
     # Shared promo features by (store, week)
-    PROMO_COLS = ["on_promo", "promo_intensity_store_week"]
+    PROMO_COLS = ["promo_intensity_store_week"]
 
     # Per-product suffixes: {suffix}_{i}
     PER_PRODUCT_COLS = [
+        "on_promo",
         "lag_1", "lag_2", "lag_4",
         "roll_4", "roll_13",
         "miss_lag_1", "miss_lag_2", "miss_lag_4",
@@ -99,11 +100,23 @@ class MultiProductDataset(Dataset):
             for i in range(n)
         ], dim=1)
 
+        # ── Price-observed mask per product: (N, n) float ──────────────────────
+        # 1.0 = log_price was observed; 0.0 = imputed. Not a model input.
+        self.price_observed = torch.stack([
+            torch.tensor(df[f"price_observed_{i}"].values, dtype=torch.float32)
+            for i in range(n)
+        ], dim=1)
+
         # ── Observation mask per product: (N, n) float ───────────────────────────
         # obs_mask[:, i] = 1.0 if demand was observed for product i, else 0.0.
         # After DataLoader collation: (B, n). Used in the loss and weighted average.
         self.obs_mask = torch.stack([
             torch.tensor(df[f"obs_mask_{i}"].values, dtype=torch.float32)
+            for i in range(n)
+        ], dim=1)
+
+        self.availability = torch.stack([
+            torch.tensor(df[f"availability_{i}"].values, dtype=torch.float32)
             for i in range(n)
         ], dim=1)
 
@@ -148,6 +161,8 @@ class MultiProductDataset(Dataset):
             "promo_feats":    self.promo_feats[idx],    # (2,)      float
             "prices":         self.prices[idx],         # (n,)      float
             "demands":        self.demands[idx],        # (n,)      float
+            "price_observed": self.price_observed[idx], # (n,)      float
+            "availability":    self.availability[idx],  # (n,)      float
             "obs_mask":       self.obs_mask[idx],       # (n,)      float
             "per_prod_float": self.per_prod_float[idx], # (n, F)    float
             "per_prod_cat":   self.per_prod_cat[idx],   # (n, C)    long
