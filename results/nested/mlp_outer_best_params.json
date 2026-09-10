@@ -1,0 +1,82 @@
+[
+  {
+    "trial": 1,
+    "robust_score": 0.9872178272398746,
+    "mean_r2": 0.4813002480400933,
+    "std_r2": 0.044858914524751485,
+    "mean_elast_score": 0.5205524401191652,
+    "std_elast_score": 0.013680529152784008,
+    "params": {
+      "HIDDEN_KEY": "64_32",
+      "DROPOUT": 0.293913734700091,
+      "LR": 0.0018827109595475537,
+      "BATCH_SIZE": 512
+    },
+    "outer_id": 0,
+    "protocol": "nested_temporal"
+  },
+  {
+    "trial": 12,
+    "robust_score": 0.9657778018564663,
+    "mean_r2": 0.47987914085388184,
+    "std_r2": 0.07257222452371431,
+    "mean_elast_score": 0.5101275503984185,
+    "std_elast_score": 0.024343333059621698,
+    "params": {
+      "HIDDEN_KEY": "64_32",
+      "DROPOUT": 0.1948179740487194,
+      "LR": 0.0026170456497424093,
+      "BATCH_SIZE": 512
+    },
+    "outer_id": 1,
+    "protocol": "nested_temporal"
+  },
+  {
+    "trial": 14,
+    "robust_score": 0.9770509726515886,
+    "mean_r2": 0.49001408947838676,
+    "std_r2": 0.018448252582706524,
+    "mean_elast_score": 0.49686032295688887,
+    "std_elast_score": 0.02084550655204148,
+    "params": {
+      "HIDDEN_KEY": "128_64",
+      "DROPOUT": 0.21443865589090863,
+      "LR": 0.0004759777676627236,
+      "BATCH_SIZE": 256
+    },
+    "outer_id": 2,
+    "protocol": "nested_temporal"
+  },
+  {
+    "trial": 10,
+    "robust_score": 0.9483017114818859,
+    "mean_r2": 0.4630984730190701,
+    "std_r2": 0.031194446190058112,
+    "mean_elast_score": 0.49762393448736286,
+    "std_elast_score": 0.018488337908129707,
+    "params": {
+      "HIDDEN_KEY": "128_64",
+      "DROPOUT": 0.23858187099125874,
+      "LR": 0.0010002988156860837,
+      "BATCH_SIZE": 512
+    },
+    "outer_id": 3,
+    "protocol": "nested_temporal"
+  },
+  {
+    "trial": 3,
+    "robust_score": 0.9713490125733328,
+    "mean_r2": 0.47345468070771957,
+    "std_r2": 0.019755271346202346,
+    "mean_elast_score": 0.5075177481630782,
+    "std_elast_score": 0.01873839384365709,
+    "params": {
+      "HIDDEN_KEY": "64_32",
+      "DROPOUT": 0.25638894594930656,
+      "LR": 0.0019356731444561883,
+      "BATCH_SIZE": 512
+    },
+    "outer_id": 4,
+    "protocol": "nested_temporal"
+  }
+]

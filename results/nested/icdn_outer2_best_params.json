@@ -1,0 +1,22 @@
+{
+  "trial": 9,
+  "robust_score": 1.392471604599451,
+  "mean_r2": 0.519698627744033,
+  "std_r2": 0.03204831883386739,
+  "mean_elast_score": 0.8972572242484931,
+  "std_elast_score": 0.06588867073843263,
+  "params": {
+    "N_BASIS": 14,
+    "HIDDEN_KEY": "256_128",
+    "DROPOUT": 0.005936095178573508,
+    "LR_P0": 0.0004170690412095295,
+    "LR_P1": 3.5331783107308794e-05,
+    "LAMBDA_SMOOTH": 0.012942769366830028,
+    "LAMBDA_ELAST": 9.824614423481118e-05,
+    "BATCH_SIZE": 1024
+  },
+  "outer_id": 2,
+  "protocol": "nested_temporal",
+  "best_epoch_p0": 309,
+  "best_epoch_p1": 195
+}

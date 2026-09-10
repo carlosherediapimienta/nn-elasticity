@@ -48,13 +48,13 @@ class StoreWeekCoverageAnalyzer:
             if col not in df.columns:
                 raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # Stats globales
+        # Global panel sizes.
         n_stores = int(df[store_col].nunique(dropna=True))
         n_weeks_global = int(df[week_col].nunique(dropna=True))
 
         n_store_week_possible = n_stores * n_weeks_global
 
-        # Pairs store-week observados (independientemente de UPCs)
+        # Observed (store, week) pairs, regardless of UPC coverage.
         n_store_week_observed = int(
             df[[store_col, week_col]].drop_duplicates().shape[0]
         )

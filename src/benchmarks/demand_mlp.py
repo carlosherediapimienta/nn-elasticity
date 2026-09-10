@@ -26,8 +26,8 @@ class MultiproductMLP(nn.Module):
         act: str = "gelu",
         dropout: float = 0.0,
         d_store: int = 16,
-        d_brand: int = 8,
-        d_style: int = 8,
+        d_brand: int = 4,
+        d_style: int = 4,
     ):
         super().__init__()
         self.n = n
@@ -145,7 +145,7 @@ class DemandMLPPipeline:
         model = self._build_model()
         opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
         sch = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            opt, mode="min", factor=0.5, patience=20, min_lr=1e-5,
+            opt, mode="min", factor=0.5, patience=30, min_lr=1e-5,
         )
         huber = nn.HuberLoss(delta=cfg.huber_delta, reduction="none")
 

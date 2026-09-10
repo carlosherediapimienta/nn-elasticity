@@ -24,7 +24,7 @@ class PanelBalanceAnalyzer:
 
         Returns:
             dict with:
-                - n_rows: filas reales en el dataset
+                - n_rows: actual rows in the dataset
                 - n_stores: number of distinct stores
                 - n_upcs: number of distinct UPCs
                 - n_weeks: number of observed weeks (unique)

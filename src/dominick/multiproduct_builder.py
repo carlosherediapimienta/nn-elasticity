@@ -17,8 +17,12 @@ class MultiProductBuilder:
         self.pivoter = MultiProductPivoter()
 
     def fit_panel(self, df: pd.DataFrame, n_upcs: int | None = None,
-                  upcs: list | None = None, stores: list | None = None):
-        self.selector.fit(df, n_upcs=n_upcs, upcs=upcs, stores=stores)
+                upcs: list | None = None, stores: list | None = None,
+                n_time_bins: int = 5):
+        self.selector.fit(df, n_upcs=n_upcs, upcs=upcs, stores=stores, n_time_bins=n_time_bins)
+        # `df` here is now the FULL panel, so this
+        # coverage filter (min_coverage=0.5 by default) finally acts as a real
+        # safety net over the whole horizon, not just the selection window.
         filtered = self.filter.run(
             df, self.selector.selected_upcs, self.selector.selected_stores,
         )

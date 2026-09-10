@@ -40,7 +40,7 @@ class FourierTimeFeatures(nn.Module):
                     "FourierTimeFeatures(include_trend=True) requiere week_min/week_max "
                     "válidos para definir el trend de forma determinista."
                 )
-            # Trend determinista con min/max globales
+            # Deterministic trend scaled to [-1, 1] from the global week range.
             trend = 2.0 * (t - week_min) / (week_max - week_min) - 1.0
             feats.append(trend)
 

@@ -66,6 +66,6 @@ class MLPConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-5
     batch_size: int = 256
-    n_epochs: int = 250
-    es_patience: int = 40
+    n_epochs: int = 400
+    es_patience: int = 70
     huber_delta: float = 1.0
