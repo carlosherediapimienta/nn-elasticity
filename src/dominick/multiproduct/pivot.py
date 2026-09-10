@@ -38,13 +38,14 @@ class MultiProductPivoter:
 
     # columns that are equal for all UPCs in a (store, week) pair
     _STORE_WEEK_COLS = [
-        "on_promo", "promo_intensity_store_week",
+        "promo_intensity_store_week",
         "week_rank",
         "sin_52", "cos_52", "sin_26", "cos_26", "sin_13", "cos_13",
     ]
 
     # columns by UPC that will be pivoted to {name_i}
     _PER_UPC_COLS = [
+        "on_promo",
         "lag_1_log_liters_sold",
         "lag_2_log_liters_sold",
         "lag_4_log_liters_sold",
@@ -75,6 +76,7 @@ class MultiProductPivoter:
 
     # short names that will have in the wide format: col_{i}
     _PER_UPC_SHORT = [
+        "on_promo",
         "lag_1", "lag_2", "lag_4",
         "roll_4", "roll_8", "roll_13",
         "miss_lag_1", "miss_lag_2", "miss_lag_4",
@@ -130,45 +132,36 @@ class MultiProductPivoter:
         pivoted.columns = [f"{short_col}_{i}" for i in range(n)]
         return pivoted
 
-    def run(self, df: pd.DataFrame, selected_upcs: list) -> pd.DataFrame:
-        df = df[df["upc_code"].isin(selected_upcs)].copy()
+    def fit(self, df: pd.DataFrame, selected_upcs: list) -> "MultiProductPivoter":
+        """Median and last observed log-price from TRAIN only."""
+        price_obs = self._price_matrix(df, selected_upcs)
+        self.selected_upcs_ = list(selected_upcs)
+        self.median_price_ = price_obs.median(axis=0)  # skipna: observed only
+        last = (
+            price_obs.groupby(level="store_code")
+            .ffill()
+            .groupby(level="store_code")
+            .last()
+        )
+        self.last_observed_ = last
+        return self
+
+    def transform(self, df: pd.DataFrame, selected_upcs: list | None = None, seed_from_train: bool = False) -> pd.DataFrame:
+        selected_upcs = list(selected_upcs or self.selected_upcs_)
         n = len(selected_upcs)
+        df = df[df["upc_code"].isin(selected_upcs)].copy()
 
-        # price pivot table: (store_code, week_id) x {upc_code}
-        # Example
-        # rows: (store_code, week_id, upc_code, log_price_per_liter)
-        # to 
-        # row (store_code=A, week_id=10) -> columns [upc_code=1, upc_code=2, upc_code=3, ...] with their log_price_per_liter.
-        price_wide = df.pivot_table(
-            index=["store_code", "week_id"],
-            columns="upc_code",
-            values="log_price_per_liter",
-            aggfunc="mean",
-        ).reindex(columns=selected_upcs)
+        price_obs = self._price_matrix(df, selected_upcs)
+        price_observed = price_obs.notna().astype(float)
+        price_observed.columns = [f"price_observed_{i}" for i in range(n)]
 
-        price_wide = (
-            price_wide
-            .reset_index()
-            .sort_values(["store_code", "week_id"])
-            .set_index(["store_code", "week_id"])
-        )
+        price_wide = self._ffill_causal(price_obs, use_seed=seed_from_train)
+        if not hasattr(self, "median_price_"):
+            raise RuntimeError("MultiProductPivoter.fit() on train before transform().")
+        median = self.median_price_.reindex(price_wide.columns)
+        price_wide = price_wide.fillna(median)
+        price_wide.columns = [f"log_price_{i}" for i in range(n)]
 
-        # It can be possible that there are gaps in the prices because the UPC was not available in some weeks.
-        # This is why we need to forward-fill and backward-fill the prices over the weeks.
-        price_wide = (
-            price_wide
-            .groupby("store_code", group_keys=False)
-            .apply(lambda g: g.ffill().bfill())
-        )
-        for col in price_wide.columns: # Fill missing prices with the column mean
-            price_wide[col] = price_wide[col].fillna(price_wide[col].mean())
-        price_wide.columns = [f"log_price_{i}" for i in range(n)] # Rename the columns to log_price_{i}
-
-        # demand pivot table + obs_mask: (store_code, week_id) x {upc_code}
-        # Example
-        # rows: (store_code, week_id, upc_code, log_liters_sold)
-        # to 
-        # row (store_code=A, week_id=10) -> columns [upc_code=1, upc_code=2, upc_code=3, ...] with their log_liters_sold.
         demand_wide = df.pivot_table(
             index=["store_code", "week_id"],
             columns="upc_code",
@@ -176,40 +169,71 @@ class MultiProductPivoter:
             aggfunc="mean",
         ).reindex(columns=selected_upcs)
 
-        # Create the obs_mask: 1.0 where demand was observed, else 0.0.
         obs_mask = demand_wide.notna().astype(float)
-        # Because we already have the obs_mask
-        # (we have already kept this information in the obs_mask), we can fill missing demand with 0.0.
+        availability = (
+            price_obs.notna()
+            | demand_wide.notna().reindex(price_obs.index).fillna(False)
+        ).astype(float)
+
         demand_wide = demand_wide.fillna(0.0)
-
-        demand_wide.columns = [f"log_liters_{i}" for i in range(n)] # Rename the columns to log_liters_{i}
-        obs_mask.columns    = [f"obs_mask_{i}"   for i in range(n)] # Rename the columns to obs_mask_{i}
-
-        # Shared columns by (store, week): store-week features
+        demand_wide.columns = [f"log_liters_{i}" for i in range(n)]
+        obs_mask.columns = [f"obs_mask_{i}" for i in range(n)]
+        availability.columns = [f"availability_{i}" for i in range(n)]
+        
         store_week_agg = (
-            df.groupby(["store_code", "week_id"])[self._STORE_WEEK_COLS]
-            .first()   # They are the same for all UPCs in that row
+            df.groupby(["store_code", "week_id"])[self._STORE_WEEK_COLS].first()
         )
 
-        # Pivot table by UPC to the wide format. It is the same as above, but for the other columns in _PER_UPC_COLS.
-        # Example
-        # rows: (store_code, week_id, upc_code, lag_1_log_liters_sold ...)
-        # to 
-        # row (store_code=A, week_id=10) -> columns [upc_code=1, upc_code=2, upc_code=3, ...] with their lag_1_log_liters_sold ...
         per_upc_parts = []
         for long_col, short_col in zip(self._PER_UPC_COLS, self._PER_UPC_SHORT):
             part = self._pivot_upc_col(df, long_col, short_col, selected_upcs, n)
             if part is not None:
                 per_upc_parts.append(part)
         for long_col, short_col in zip(self._PER_UPC_CAT_COLS, self._PER_UPC_CAT_SHORT):
-            part = self._pivot_upc_col(df, long_col, short_col, selected_upcs, n,
-                                        aggfunc="first", fill_value=0, as_int=True)
+            part = self._pivot_upc_col(
+                df, long_col, short_col, selected_upcs, n,
+                aggfunc="first", fill_value=0, as_int=True,
+            )
             if part is not None:
                 per_upc_parts.append(part)
 
-        # Final join of the pivot tables.
-        wide = price_wide.join(demand_wide).join(obs_mask).join(store_week_agg)
+        wide = (
+            price_wide.join(price_observed)
+            .join(availability)
+            .join(demand_wide)
+            .join(obs_mask)
+            .join(store_week_agg)
+        )
         for part in per_upc_parts:
             wide = wide.join(part)
-
         return wide.reset_index()
+
+    def _price_matrix(self, df: pd.DataFrame, selected_upcs: list) -> pd.DataFrame:
+        price_wide = df.pivot_table(
+            index=["store_code", "week_id"],
+            columns="upc_code",
+            values="log_price_per_liter",
+            aggfunc="mean",
+        ).reindex(columns=selected_upcs)
+        return (
+            price_wide.reset_index()
+            .sort_values(["store_code", "week_id"])
+            .set_index(["store_code", "week_id"])
+        )
+
+    def _ffill_causal(self, price_obs, use_seed: bool = False):
+        seeded = price_obs
+        seed_week = None
+        if use_seed and getattr(self, "last_observed_", None) is not None:
+            stores = price_obs.index.get_level_values("store_code").unique()
+            week0 = price_obs.index.get_level_values("week_id").min()
+            seed_week = week0 - 1
+            seed = self.last_observed_.reindex(stores)
+            seed.index = pd.MultiIndex.from_product(
+                [stores, [seed_week]], names=["store_code", "week_id"]
+            )
+            seeded = pd.concat([seed, price_obs]).sort_index()
+        filled = seeded.groupby(level="store_code").ffill()
+        if seed_week is not None:
+            filled = filled[filled.index.get_level_values("week_id") != seed_week]
+        return filled

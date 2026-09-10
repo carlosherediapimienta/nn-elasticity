@@ -35,6 +35,7 @@ class DataLoaderFactory:
         batch_size: int | None = None,
         shuffle: bool = True,
         drop_last: bool = True,
+        generator=None,
     ) -> DataLoader:
         """
         Create DataLoader for training.
@@ -56,7 +57,8 @@ class DataLoaderFactory:
             pin_memory=self.pin_memory,
             drop_last=drop_last,
             persistent_workers=self.persistent_workers and self.num_workers > 0,
-            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
+            generator=generator,
         )
     
     def create_eval_loader(

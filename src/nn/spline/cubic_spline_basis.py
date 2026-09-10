@@ -35,8 +35,8 @@ class CubicSplineBasis(nn.Module):
 
     def forward(self, x: torch.Tensor):
         xs = x.float().view(-1, 1)              # (B, 1)
-        xs = (xs - self.shift) / self.scale     # escalado
-        u  = F.relu(xs - self.knots)            # (B, K)  ← knots ya están pre-escalados en __init__
+        xs = (xs - self.shift) / self.scale     # (B, 1) normalized
+        u  = F.relu(xs - self.knots)            # (B, K); knots were pre-scaled in __init__
 
         Bx_s   = u ** 3
         dBx_s  = 3.0 * (u ** 2)

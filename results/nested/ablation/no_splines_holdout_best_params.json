@@ -1,0 +1,23 @@
+{
+  "variant": "no_splines",
+  "protocol": "holdout",
+  "trial": 15,
+  "select_by": "robust_score",
+  "robust_score": 1.3570032596771364,
+  "robust_r2": 0.5222297987634723,
+  "mean_r2": 0.5249661213944478,
+  "std_r2": 0.01094529052390202,
+  "mean_elast_score": 0.8483940098873944,
+  "std_elast_score": 0.054482195894921294,
+  "params": {
+    "N_BASIS": 2,
+    "HIDDEN_KEY": "256_128_64",
+    "DROPOUT": 0.005438584581335259,
+    "LR_P0": 0.0017215957556661204,
+    "LR_P1": 0.00013992380829957232,
+    "LAMBDA_SMOOTH": 0.0,
+    "LAMBDA_ELAST": 0.0002934303366349789,
+    "BATCH_SIZE": 1024
+  },
+  "split": "holdout"
+}

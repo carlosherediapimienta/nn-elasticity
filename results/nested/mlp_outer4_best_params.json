@@ -1,0 +1,16 @@
+{
+  "trial": 3,
+  "robust_score": 0.9713490125733328,
+  "mean_r2": 0.47345468070771957,
+  "std_r2": 0.019755271346202346,
+  "mean_elast_score": 0.5075177481630782,
+  "std_elast_score": 0.01873839384365709,
+  "params": {
+    "HIDDEN_KEY": "64_32",
+    "DROPOUT": 0.25638894594930656,
+    "LR": 0.0019356731444561883,
+    "BATCH_SIZE": 512
+  },
+  "outer_id": 4,
+  "protocol": "nested_temporal"
+}

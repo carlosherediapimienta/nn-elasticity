@@ -1,6 +1,6 @@
 # Integrable Elasticity via Neural Demand Surfaces
 
-A neural-network framework for estimating own- and cross-price elasticities of demand from scanner data, grounded in derivative-coherent demand modeling. The model learns a smooth context-dependent log-demand surface and obtains elasticities as exact derivatives with respect to log-prices. Evaluated on the Dominick's Finer Foods beer dataset against a directed pairwise log-log OLS benchmark.
+A neural-network framework for estimating own- and cross-price elasticities of demand from scanner data, grounded in derivative-coherent demand modeling. The model learns a smooth context-dependent log-demand surface and obtains elasticities as exact derivatives with respect to log-prices. Evaluated on the Dominick's Finer Foods beer dataset against directed pairwise OLS, Ridge, and a demand-first MLP.
 
 ---
 
@@ -28,7 +28,7 @@ Classical demand estimation often fits separate regressions for product pairs, y
 
 6. **Context-dependent parameters.** A shared product encoder maps product-level tokens—store, time, promotions, lags, product metadata, and competitive features—into the coefficients of the structured demand surface, allowing elasticities to vary across market conditions.
 
-7. **Sparse cross-product interaction graph.** A sparse neighbor selector identifies relevant directed competitors per product using attention and metadata such as category, brand, style, and pack-size similarity. This keeps the cross-price component scalable while preserving heterogeneous substitution and complementarity patterns.
+7. **Sparse cross-product interaction graph.** A sparse neighbor selector identifies relevant directed competitors per product using attention and metadata such as category, brand, style, and pack-size similarity. Softmax weights are masked by per-observation **availability**, so stocked-out neighbors receive zero weight. After training, the graph can be **frozen** (one pass over the training split, then a sparse $O(B \cdot n \cdot k)$ path).
 
 ---
 
@@ -39,19 +39,21 @@ Classical demand estimation often fits separate regressions for product pairs, y
 │ Batch (store, week)  │
 │ MultiProductDataset  │
 │ wide-format panel    │
+│ prices, obs_mask,    │
+│ availability         │
 └──────────┬───────────┘
            │
 ┌──────────┴──────────────────┐
 ▼                             ▼
-┌────────────────────────┐    ┌──────────────────────┐
-│ ProductTokenBuilder    │    │ MultiCubicSplineBasis │
-│                        │    │                      │
-│ store emb + Fourier +  │    │ Bx, dBx, ddBx        │
-│ promo + per-product    │    │                      │
-│ lags + competitive     │    │                      │
-└────────────┬───────────┘    └──────────┬───────────┘
-             │ tokens (B,n,d)            │ spline outputs
-             └────────────┬──────────────┘
+┌────────────────────────┐    ┌──────────────────────────┐
+│ ProductTokenBuilder    │    │ build_price_basis        │
+│                        │    │ truncated_cubic or       │
+│ store emb + Fourier +  │    │ natural_cubic            │
+│ promo + per-product    │    │ Bx, dBx, ddBx            │
+│ lags + competitive     │    │                          │
+└────────────┬───────────┘    └────────────┬─────────────┘
+             │ tokens (B,n,d)              │ spline outputs
+             └────────────┬────────────────┘
                           ▼
                 ┌────────────────────────────┐
                 │ IntegrableDemandHead       │
@@ -59,9 +61,10 @@ Classical demand estimation often fits separate regressions for product pairs, y
                 │ SharedProductEncoder → h   │
                 │ SparseNeighborSelector →   │
                 │   pairs, attn_weights      │
+                │   (availability-masked)    │
                 │ DemandParameterHead(h) →   │
                 │   b, β, w (own)            │
-                │   α, u (cross potential)   │
+                │   β_cross, w_cross, u      │
                 │ DemandCalculator →         │
                 │   ŷ, ε̂, E                 │
                 └────────────────────────────┘
@@ -69,17 +72,27 @@ Classical demand estimation often fits separate regressions for product pairs, y
 
 **`ICDN`** (Integrable Context-Dependent Demand Network) orchestrates the full forward pass: context token building, spline evaluation, sparse neighbor selection, and the integrable demand head.
 
+Training is **two-phase**. Phase 0 freezes spline and bilinear heads (log-linear demand, negative-$\beta$ prior). Phase 1 unfreezes them and adds smoothness and elasticity-bound penalties. The compound loss is
+
+$\mathcal{L} = \mathcal{L}_{\mathrm{Huber}} + \lambda_{\mathrm{smooth}}\,\mathcal{L}_{\mathrm{smooth}} + \lambda_{\mathrm{elast}}\,\mathcal{L}_{\mathrm{elast}},$
+
+with soft bounds $E_{ii}\in[-5,0]$ and $E_{ij}\in[-1,1]$. Penalty, score, and export entries are gated by `elasticity_entry_mask` (observed demand and price on $i$; observed price and availability on $j$).
+
 ---
 
 ## Evaluation framework
 
+All ICDN, MLP, and architecture-alternative runs use a **nested temporal** protocol: no future leakage (validation is always later than training).
+
 | Dimension | Method | Data source |
 |---|---|---|
-| **Generalization** | Temporal k-fold CV (expanding window) | `nn_kfold_metrics_raw.csv`, `nn_kfold_elasticities_raw.csv`, `benchmark_kfold_raw.csv` |
-| **Elasticity stability** | Block bootstrap with CI comparison | `nn_bootstrap_elasticities_raw.csv`, `benchmark_bootstrap_raw.csv`, `benchmark_elasticities_bootstrap_summary.csv` |
+| **Tuning** | Nested temporal Optuna (5 outer × 3 inner folds) | `results/nested/` |
+| **Generalization** | Expanding-window outer folds × paired seeds | `data/nn_kfold_metrics_raw_nested.csv`, `data/nn_kfold_elasticities_raw_nested.csv`, `data/benchmark_*_kfold_*` |
+| **Elasticity stability** | Block bootstrap (13-week blocks) with CI comparison | `data/nn_bootstrap_elasticities_raw_nested.csv`, `data/benchmark_*_bootstrap_*` |
 | **Calibration** | Bootstrap CI coverage over k-fold point estimates | Cross-referencing bootstrap CIs with k-fold elasticities |
+| **Architecture** | Fixed-config / equal-budget / confirmatory 2×2 | `results/architecture_alternatives/` |
 
-The temporal splitter ensures no future leakage: validation folds are always chronologically after training data.
+The reported ICDN panel is **4 UPCs**. The stress test scales the same architecture synthetically up to $n=200$.
 
 ---
 
@@ -88,83 +101,65 @@ The temporal splitter ensures no future leakage: validation folds are always chr
 ```text
 nn-elasticity/
 ├── data/                    # Processed CSVs and evaluation outputs
-├── results/                 # Optuna DB, best hyperparameters, checkpoints, ablation + stress outputs
+├── results/                 # Nested Optuna DBs, checkpoints, ablation, stress, architecture runs
 ├── notebooks/
-│   ├── preprocess-data.ipynb          # Raw Dominick's data → dominick_features.csv
-│   ├── creation-dataset.ipynb         # Feature filtering → elasticity_dataset.csv
-│   ├── hparam-search.ipynb            # Optuna hyperparameter optimization
-│   ├── nn_final_evaluation.ipynb      # Full evaluation of best trial (k-fold + bootstrap)
-│   ├── benchmark.ipynb                # OLS / Ridge / MLP benchmarks (k-fold + bootstrap)
-│   ├── ablation-study.ipynb           # Leave-one-out ICDN component ablation
-│   ├── stress-test.ipynb              # ICDN forward-pass latency/memory vs (n, k)
-│   └── analysis-results.ipynb         # Head-to-head: ICDN vs OLS / Ridge / MLP
+│   ├── preprocess-data.ipynb                       # Raw Dominick's data → dominick_features.csv
+│   ├── creation-dataset.ipynb                      # Feature filtering → elasticity_dataset.csv
+│   ├── hparam-search.ipynb                         # Nested temporal Optuna (ICDN)
+│   ├── nn_final_evaluation.ipynb                   # Outer-fold + holdout eval + bootstrap
+│   ├── benchmark-linear.ipynb                      # Pairwise OLS and Ridge (k-fold + bootstrap)
+│   ├── benchmark-mlp.ipynb                         # Demand MLP, nested protocol
+│   ├── ablation-study.ipynb                        # Nested holdout leave-one-out ablations
+│   ├── architecture-alternatives.ipynb             # Basis × attention 2×2 (3 levels)
+│   ├── analysis-result-architecture-alternative.ipynb
+│   ├── stress-test.ipynb                           # Latency / memory vs (n, k)
+│   └── analysis-results.ipynb                      # Head-to-head: ICDN vs OLS / Ridge / MLP
 └── src/
     ├── dominick/                      # Dominick's data loading and processing
-    │   ├── dataloader.py              # Raw CSV loader
-    │   ├── dataprocess.py             # Processing pipeline
-    │   ├── datasaver.py               # Saving utilities
-    │   ├── multiproduct_builder.py    # Orchestrates multiproduct pivot
+    │   ├── dataloader.py
+    │   ├── dataprocess.py
+    │   ├── datasaver.py
+    │   ├── multiproduct_builder.py
     │   ├── multiproduct/              # Panel selection and wide-format pivot
-    │   │   ├── filter_complete.py
-    │   │   ├── panel_selector.py
-    │   │   └── pivot.py
     │   └── processors/                # Feature engineering
     │       ├── elasticity_features.py
-    │       ├── financial_totals.py
+    │       ├── financial_ratios.py
     │       ├── liter_metrics.py
     │       ├── text_normalizer.py
     │       └── unit_converter.py
     ├── multiproduct/                  # PyTorch dataset and context token builder
-    │   ├── dataset.py                 # MultiProductDataset (wide-format panel)
+    │   ├── dataset.py                 # MultiProductDataset (includes availability)
     │   └── context.py                 # ProductTokenBuilder
     ├── nn/
     │   ├── models/
-    │   │   ├── icdn.py                # ICDN: top-level nn.Module
-    │   │   └── integrable_demand_head.py  # IntegrableDemandHead
+    │   │   ├── icdn.py
+    │   │   └── integrable_demand_head.py
     │   ├── heads/
-    │   │   ├── demand_calculator.py       # DemandCalculator
-    │   │   ├── elasticity_calculator.py   # ElasticityCalculator
-    │   │   ├── parameter_head.py          # DemandParameterHead
-    │   │   └── neighbor_selector.py       # SparseNeighborSelector
+    │   │   ├── demand_calculator.py
+    │   │   ├── elasticity_calculator.py
+    │   │   ├── parameter_head.py
+    │   │   └── neighbor_selector.py   # scaled_dot / additive; availability softmax
     │   ├── spline/
-    │   │   ├── cubic_spline_basis.py      # Per-product spline basis
-    │   │   └── multi_cubic_spline_basis.py # Vectorized multi-product spline
+    │   │   ├── cubic_spline_basis.py
+    │   │   ├── multi_cubic_spline_basis.py      # truncated-power (default)
+    │   │   ├── multi_natural_cubic_spline_basis.py
+    │   │   └── basis_factory.py                 # build_price_basis(...)
     │   ├── context/
-    │   │   └── context_mlp.py             # SharedProductEncoder
+    │   │   └── context_mlp.py
     │   ├── loss/
-    │   │   ├── elasticity_loss.py         # ElasticityLoss (Huber + smoothness + positivity + cross)
+    │   │   ├── elasticity_loss.py
+    │   │   ├── elasticity_mask.py
     │   │   └── components/
-    │   │       ├── fit_loss.py
-    │   │       ├── smoothness_penalty.py
-    │   │       ├── positivity_penalty.py
-    │   │       └── curvature_calculator.py
     │   ├── data/
-    │   │   ├── dataset/
-    │   │   │   └── dataloader_factory.py  # DataLoaderFactory
-    │   │   ├── preprocessing/
-    │   │   │   └── column_encoder.py      # ColumnEncoder
-    │   │   └── spline/
-    │   │       ├── knot_generator.py
-    │   │       ├── spline_builder.py      # SplineBuilder
-    │   │       └── statistics_calculator.py
     │   └── time_features/
-    │       └── fourier_time_features.py   # Fourier seasonal features
-    ├── benchmarks/                    # Baseline demand / elasticity pipelines
-    │   ├── config.py                  # BenchmarkConfig, RidgeConfig, MLPConfig
-    │   ├── pairs.py                   # Long → directed pair dataset
-    │   ├── pairwise_ols.py            # Pairwise OLS with robust SEs
-    │   ├── ridge.py                   # Pairwise RidgeCV (same grouping as OLS)
-    │   ├── demand_mlp.py              # Global demand-first MLP + autodiff elasticities
-    │   └── summarizer.py              # Bootstrap aggregation
-    ├── eda/                           # Exploratory data analysis
-    │   ├── eda.py
-    │   └── functions/
-    │       ├── competitors/           # Competitive feature builders
-    │       ├── grain/                 # Panel balance, coverage, gap imputation
-    │       ├── missing_data/          # NaN analysis
-    │       ├── outliers/              # Outlier detection
-    │       ├── price_variation/       # Log-price/demand, collinearity, baseline OLS
-    │       └── time_series/           # Trends, autocorrelation, temporal features
+    ├── benchmarks/
+    │   ├── config.py
+    │   ├── pairs.py
+    │   ├── pairwise_ols.py
+    │   ├── ridge.py
+    │   ├── demand_mlp.py
+    │   └── summarizer.py
+    ├── eda/
     └── utils/
         └── splits.py                  # TemporalSplitter, BlockBootstrapSampler
 ```
@@ -188,21 +183,23 @@ creation-dataset.ipynb
         ▼
 elasticity_dataset.csv  (store × UPC × week panel)
         │
-        ├──────────────────────────────┐
-        ▼                              ▼
-hparam-search.ipynb           benchmark.ipynb
-nn_final_evaluation.ipynb     (pairwise OLS)
-(ICDN training + eval)
-        │                              │
-        ▼                              ▼
-nn_kfold_*.csv              benchmark_*.csv
-nn_bootstrap_*.csv          benchmark_bootstrap*.csv
-        │                              │
+        ├──────────────────┬──────────────────┬──────────────────┐
+        ▼                  ▼                  ▼                  ▼
+hparam-search.ipynb   benchmark-linear   benchmark-mlp    architecture-alternatives
+nn_final_evaluation   (OLS + Ridge)      (nested MLP)     analysis-result-architecture-…
+ablation-study
+        │                  │                  │                  │
+        ▼                  ▼                  ▼                  ▼
+data/nn_*_nested.csv   data/benchmark_*.csv   data/benchmark_mlp_*_nested.csv
+results/nested/        results/nested/ablation/   results/architecture_alternatives/
+        │
         └──────────┬───────────────────┘
                    ▼
         analysis-results.ipynb
         (generalization, stability, calibration)
 ```
+
+`stress-test.ipynb` is independent of the panel: it instantiates ICDN modules with best-trial hyperparameters and random weights, then times inference and a training step over a grid of $(n,k)$. Output: `results/stress_test_icdn.csv`.
 
 ---
 
@@ -212,27 +209,55 @@ The project uses the Dominick's Finer Foods dataset from the Kilts Center at Chi
 
 ---
 
-## Benchmark
+## Benchmarks
 
 Three baselines share the same directed-pair construction and control set where applicable:
 
-1. Pairwise OLS (PairwiseElasticityPipeline) — separate log-log regression per directed product pair within each store: $\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon$. Inference uses HC1 robust standard errors and block bootstrap. Configuration: BenchmarkConfig.
+1. **Pairwise OLS** (`PairwiseElasticityPipeline`) — separate log-log regression per directed product pair within each store: $\log q_i = \alpha + \beta_i \log p_i + \gamma_{ij} \log p_j + X\delta + \varepsilon$. Inference uses HC1 robust standard errors and block bootstrap. Configuration: `BenchmarkConfig`. Notebook: `benchmark-linear.ipynb`.
 
-2. Pairwise Ridge (RegularizedElasticityPipeline) — same grouping and formula as OLS; only the estimator changes (RidgeCV with internal alpha selection). Isolates the effect of coefficient shrinkage. Configuration: RidgeConfig.
+2. **Pairwise Ridge** (`RegularizedElasticityPipeline`) — same grouping and formula as OLS; only the estimator changes (RidgeCV with internal alpha selection). Isolates the effect of coefficient shrinkage. Configuration: `RidgeConfig`. Notebook: `benchmark-linear.ipynb`.
 
-3. Demand MLP (DemandMLPPipeline) — single global demand-first MLP trained on the dyadic dataset; elasticities via autodiff. Deliberately excludes ICDN's splines, sparse attention, bilinear cross potential, and elasticity penalties. Configuration: MLPConfig.
+3. **Demand MLP** (`DemandMLPPipeline`) — single global demand-first MLP trained on the dyadic dataset; elasticities via autodiff. Deliberately excludes ICDN's splines, sparse attention, bilinear cross potential, and elasticity penalties. Uses the same nested temporal protocol as ICDN. Configuration: `MLPConfig`. Notebook: `benchmark-mlp.ipynb`.
 
 ---
 
 ## Ablation study
 
-notebooks/ablation-study.ipynb isolates ICDN component contribution with leave-one-out variants (e.g. full, no_smooth, no_elast, no_attention, no_cross, no_splines, plus constraint / sign variants). Each variant runs a small Optuna search; outputs land in results/ablation_*.
+`notebooks/ablation-study.ipynb` isolates ICDN component contribution with leave-one-out variants, each retuned on the nested holdout split (20 trials × 3 inner folds):
+
+| Family | Variants |
+|---|---|
+| Module ablation | `full`, `no_smooth`, `no_elast`, `no_attention`, `no_cross`, `no_splines` |
+| Constraint sensitivity | `free_sign`, `unconstrained`, `wide_bounds` |
+
+Outputs land in `results/nested/ablation/`.
+
+---
+
+## Architecture alternatives
+
+`notebooks/architecture-alternatives.ipynb` compares a $2\times 2$ of **price basis × attention score**, with analysis in `analysis-result-architecture-alternative.ipynb`:
+
+| ID | Basis | Score |
+|---|---|---|
+| `TP-DOT` | truncated-power cubic (default ICDN) | scaled dot-product |
+| `NC-DOT` | natural cubic | scaled dot-product |
+| `TP-ADD` | truncated-power cubic | additive ($v^\top\tanh(W_q h_i+W_k h_j)$) |
+| `NC-ADD` | natural cubic | additive |
+
+Three levels, same training budget as `hparam-search.ipynb`:
+
+1. **Fixed-config substitution** — identical hyperparameters, reference outer fold, paired seeds.
+2. **Equal-budget screening** — shared hyperparameter grid; select by `robust_r2 = mean_r2 − 0.25 × std_r2` (predictive only).
+3. **Confirmatory outer folds** — each model's own best config, 5 expanding folds × 5 paired seeds.
+
+Artifacts: `results/architecture_alternatives/` (metrics, elasticities, attention edges, runtime/memory, figures).
 
 ---
 
 ## Stress test
 
-notebooks/stress-test.ipynb measures ICDN forward-pass latency and memory across product-count / neighbor-count combinations $(n, k)$ using best-trial hyperparameters and random weights. Results: results/stress_test_icdn.csv.
+`notebooks/stress-test.ipynb` measures ICDN latency and GPU memory across product-count / neighbor-count combinations $(n, k)$ using best-trial hyperparameters and random weights. The grid covers $n\in\{5,10,25,50,100,200\}$ and $k\in\{1,2,4,8,16,32\}$ plus the dense case $k=n-1$. Each point reports a frozen-graph inference breakdown **and** a full training step (online graph selection, AMP, AdamW). Results: `results/stress_test_icdn.csv`.
 
 ---
 

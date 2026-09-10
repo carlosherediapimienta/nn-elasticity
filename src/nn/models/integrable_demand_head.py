@@ -27,6 +27,8 @@ class IntegrableDemandHead(nn.Module):
         dropout=0.0,
         enforce_negative_beta: bool = False,
         use_cross: bool = True,
+        attention_score_mode: str = "scaled_dot",
+        same_category_strict: bool = False,
     ):
         super().__init__()
 
@@ -53,7 +55,12 @@ class IntegrableDemandHead(nn.Module):
 
         # Build the sparse neighbor selector to select the neighbors.
         if use_cross:
-            self.neighbor_selector = SparseNeighborSelector(d_hidden=H, k_neighbors=k_neighbors)
+            self.neighbor_selector = SparseNeighborSelector(
+                d_hidden=H,
+                k_neighbors=k_neighbors,
+                score_mode=attention_score_mode,
+                use_same_category_strict=same_category_strict,
+            )
         else:
             self.neighbor_selector = None
 
@@ -65,6 +72,7 @@ class IntegrableDemandHead(nn.Module):
         dBx: torch.Tensor,
         return_E: bool = False,
         neighbor_meta: dict[str, torch.Tensor] | None = None,
+        availability: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
 
         # ── Step 1: Compute the latent representation h from the context c.
@@ -84,6 +92,7 @@ class IntegrableDemandHead(nn.Module):
                 brand=neighbor_meta["brand"],
                 style=neighbor_meta["style"],
                 liters=neighbor_meta["liters"],
+                availability=availability,
             )
 
         # ── Step 2: Compute the parameters b, beta, w, u from the latent representation h.
@@ -112,7 +121,9 @@ class IntegrableDemandHead(nn.Module):
             pairs=params['pairs'],
             attn_weights=attn_weights,
             return_E=return_E,
+            availability=availability,
         )
+        params["attn_weights"] = attn_weights
         if return_E and (E is not None):
             params['E'] = E
         return y_hat, eps_hat, params

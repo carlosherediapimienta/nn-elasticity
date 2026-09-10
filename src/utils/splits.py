@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 
 class TemporalSplitter:
@@ -72,6 +72,36 @@ class TemporalSplitter:
             folds.append((train_df, val_df))
 
         return folds
+
+    
+    def nested_expanding_splits(
+        self,
+        df: pd.DataFrame,
+        n_outer: int,
+        n_inner: int,
+        min_train_frac: float = 0.5,
+    ) -> List[Dict[str, Any]]:
+        """Outer expanding folds; inner folds live only inside each outer train."""
+        plans = []
+        outer_folds = self.expanding_splits(df, n_folds=n_outer, min_train_frac=min_train_frac)
+        for outer_id, (outer_train, outer_val) in enumerate(outer_folds):
+            inner = self.expanding_splits(
+                outer_train, n_folds=n_inner, min_train_frac=min_train_frac
+            )
+            outer_val_weeks = set(outer_val[self.week_col].unique())
+            for _, inner_val in inner:
+                leak = set(inner_val[self.week_col].unique()) & outer_val_weeks
+                if leak:
+                    raise RuntimeError(
+                        f"Selection leak in outer {outer_id}: {sorted(leak)[:10]}"
+                    )
+            plans.append({
+                "outer_id": outer_id,
+                "outer_train": outer_train,
+                "outer_val": outer_val,
+                "inner_splits": inner,
+            })
+        return plans
 
 
 class BlockBootstrapSampler:

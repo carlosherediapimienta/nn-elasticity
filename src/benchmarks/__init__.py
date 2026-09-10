@@ -2,7 +2,7 @@ from .config import BenchmarkConfig, RidgeConfig, MLPConfig
 from .pairs import PairDatasetBuilder
 from .pairwise_ols import PairwiseElasticityPipeline
 from .ridge import RegularizedElasticityPipeline
-from .demand_mlp import DemandMLP, DemandMLPPipeline
+from .demand_mlp import MultiproductMLP, DemandMLPPipeline
 from .summarizer import BootstrapSummarizer
 
 __all__ = [
@@ -12,7 +12,7 @@ __all__ = [
     "PairDatasetBuilder",
     "PairwiseElasticityPipeline",
     "RegularizedElasticityPipeline",
-    "DemandMLP",
+    "MultiproductMLP",
     "DemandMLPPipeline",
     "BootstrapSummarizer",
 ]

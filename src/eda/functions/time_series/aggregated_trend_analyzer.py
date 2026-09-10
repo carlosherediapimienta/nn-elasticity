@@ -54,7 +54,7 @@ class AggregatedTrendAnalyzer:
         safe_demand = np.where(total_demand > 0, total_demand, np.nan)
         agg["log_total_demand"] = np.log(np.clip(safe_demand, 1e-12, None))
 
-        # Calcular correlaciones solo sobre semanas con datos reales (sin NaN)
+        # Correlations only over weeks with real (non-NaN) data.
         agg_clean = agg.dropna(subset=["mean_log_price", "log_total_demand", "promo_rate"])
 
         rank = agg_clean["week_rank"]

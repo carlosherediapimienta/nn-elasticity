@@ -1,0 +1,23 @@
+{
+  "variant": "free_sign",
+  "protocol": "holdout",
+  "trial": 18,
+  "select_by": "robust_r2",
+  "robust_score": 1.5008021829632456,
+  "robust_r2": 0.5295588773579748,
+  "mean_r2": 0.5344772991159484,
+  "std_r2": 0.019673687031894333,
+  "mean_elast_score": 0.9791939578977408,
+  "std_elast_score": 0.031802609169880314,
+  "params": {
+    "N_BASIS": 2,
+    "HIDDEN_KEY": "256_128_64",
+    "DROPOUT": 0.23169698530786997,
+    "LR_P0": 0.0010493707729719317,
+    "LR_P1": 9.720603678606466e-05,
+    "LAMBDA_SMOOTH": 0.0008893683945877446,
+    "LAMBDA_ELAST": 0.13655040639130886,
+    "BATCH_SIZE": 256
+  },
+  "split": "holdout"
+}

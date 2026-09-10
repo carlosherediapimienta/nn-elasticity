@@ -52,14 +52,14 @@ class ProductTextNormalizer:
         text = str(text).upper().strip()
         text = cls._strip_accents(text)
 
-        # Normalizaciones de puntuación frecuentes
+        # Common punctuation normalizations.
         text = text.replace("&", " AND ")
         text = text.replace("/", " ")
         text = text.replace("-", " ")
         text = text.replace("'", "")
         text = text.replace('"', " ")
 
-        # Quitar basura frecuente y colapsar espacios
+        # Drop leftover junk characters and collapse whitespace.
         text = re.sub(r"[^A-Z0-9 ]+", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         return text
@@ -77,7 +77,7 @@ class ProductTextNormalizer:
             if pattern.search(text_norm):
                 return label
 
-        # Fallback simple: primeras 1-2 palabras no genéricas
+        # Fallback: first 1–2 non-generic tokens.
         tokens = text_norm.split()
         stopwords = {
             "BEER", "LIGHT", "DRAFT", "DARK", "AMBER", "LAGER", "ALE", "STOUT",
@@ -110,7 +110,7 @@ class ProductTextNormalizer:
         if not matched_labels:
             return self.unknown_style
 
-        # Prioridad: categorías más estructurales primero
+        # Resolve conflicts: more structural style categories win.
         priority = [
             "NON_ALCOHOLIC",
             "CIDER",

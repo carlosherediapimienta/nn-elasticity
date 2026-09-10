@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 class PanelSelector:
     """
@@ -47,57 +48,80 @@ class PanelSelector:
         n_upcs: int | None = None,
         upcs: list | None = None,
         stores: list | None = None,
+        n_time_bins: int = 5,
     ) -> "PanelSelector":
-
-        # ── 1. Store scope ───────────────────────────────────────
+        """
+        n_time_bins: number of chronological chunks used to score temporal
+        balance. A candidate is scored by its WORST bin, not its total count,
+        so products that go quiet for part of the horizon (e.g. discontinued
+        SKUs) can no longer look as good as products that are steadily
+        available throughout. Purely a scoring change -- the greedy structure
+        (seed + iterative intersection) is unchanged.
+        """
+        # ── 1. Store scope ─────────────────────────────────────────
         if stores is not None:
             df_scope = df[df["store_code"].isin(stores)]
         else:
-            df_scope = df   # all stores
+            df_scope = df
 
-        # ── 2. UPC selection ──────────────────────────────────────
+        # ── 2. UPC selection ────────────────────────────────────────
         if upcs is not None:
-            # Manual mode
             self.selected_upcs = list(upcs)
 
         elif n_upcs is None:
-            # All UPCs within the scope
             self.selected_upcs = df_scope["upc_code"].unique().tolist()
 
         else:
-            # Greedy: maximize intersection of (store, week) between the n UPCs
-            # Compute the set of (store, week) pairs for each UPC
-            # {
-            #    upc_1: {(storeA, week1), (storeA, week2), (storeB, week1), ...},
-            #    upc_2: {(storeA, week1), (storeC, week5), ...},
-            #    ...
-            # }
+            df_scope = df_scope.copy()
+            weeks_sorted = sorted(df_scope["week_id"].unique())
+            # NEW: chronological bin index per week, used only for scoring.
+            bin_of_week = {
+                w: b
+                for b, chunk in enumerate(np.array_split(weeks_sorted, n_time_bins))
+                for w in chunk
+            }
+            df_scope["_time_bin"] = df_scope["week_id"].map(bin_of_week)
+
+            # Same (store, week) sets as before...
             upc_storewks: dict = {
                 upc: set(zip(g["store_code"], g["week_id"]))
                 for upc, g in df_scope.groupby("upc_code")
             }
+            # ...plus a per-bin breakdown, used only to penalize discontinuity.
+            upc_bin_counts: dict = {
+                upc: g.groupby("_time_bin").size().reindex(range(n_time_bins), fill_value=0)
+                for upc, g in df_scope.groupby("upc_code")
+            }
 
-            # Select the UPC with the largest coverage
-            # and add it to the selected list
-            first = max(upc_storewks, key=lambda u: len(upc_storewks[u]))
+            def _worst_bin(counts) -> int:
+                """Smallest per-bin count: a product empty in ANY bin scores 0
+                here, regardless of how dense it is in the other bins."""
+                return int(counts.min())
+
+            # Seed: best worst-case temporal balance, not best raw total.
+            first = max(upc_storewks, key=lambda u: _worst_bin(upc_bin_counts[u]))
             selected = [first]
             current_intersection = upc_storewks[first]
 
-            # Select the next UPC with the largest coverage
-            # and add it to the selected list
-            # and update the current intersection
             for _ in range(n_upcs - 1):
-                remaining = [u for u in upc_storewks if u not in selected] # Remaining UPCs
-                if not remaining: # If there are no remaining UPCs, break the loop
+                remaining = [u for u in upc_storewks if u not in selected]
+                if not remaining:
                     break
-                best = max(remaining, key=lambda u: len(current_intersection & upc_storewks[u])) # Best UPC to add
-                selected.append(best) # Add the best UPC to the selected list
-                current_intersection &= upc_storewks[best] # Update the current intersection
+
+                def _score(u):
+                    inter = current_intersection & upc_storewks[u]
+                    if not inter:
+                        return 0
+                    bins = pd.Series([bin_of_week[w] for _, w in inter])
+                    per_bin = bins.value_counts().reindex(range(n_time_bins), fill_value=0)
+                    return _worst_bin(per_bin)  # <- worst bin, not len(inter)
+
+                best = max(remaining, key=_score)
+                selected.append(best)
+                current_intersection &= upc_storewks[best]
 
             self.selected_upcs = selected
 
-        # Stores: all stores that have at least 1 selected UPC
-        # (CompleteObservationFilter will apply min_products after)
         self.selected_stores = df[df["upc_code"].isin(self.selected_upcs)]["store_code"].unique().tolist()
-        self.n = len(self.selected_upcs) # Number of selected UPCs
+        self.n = len(self.selected_upcs)
         return self

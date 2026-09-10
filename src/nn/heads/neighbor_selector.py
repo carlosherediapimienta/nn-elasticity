@@ -1,5 +1,6 @@
 import math
 import torch
+from typing import Literal
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -10,9 +11,16 @@ class SparseNeighborSelector(nn.Module):
     Two-stage design:
       1. Structural candidates: batch-shared pairs selected by aggregated
          scores + metadata bonus (same category required, brand/style/liters bonus).
-      2. Per-sample soft weights: softmax of q(h_i)^T k(h_j) within each
-         focal product i's candidates, giving heterogeneous edge strengths
-         per observation without breaking vectorization.
+      2. Per-sample soft weights: softmax of a compatibility score s(h_i, h_j)
+         within each focal product i's candidates, giving heterogeneous edge
+         strengths per observation without breaking vectorization.
+
+    The compatibility score s_ij is pluggable via score_mode:
+      - "scaled_dot" (default): s_ij = q(h_i)^T k(h_j) / sqrt(d_attn)
+      - "additive":             s_ij = v_a^T tanh(W_q h_i + W_k h_j)
+    Both share the same q_proj/k_proj (W_q, W_k) and d_attn; "additive" adds
+    one extra v_score head. Everything else (metadata bonus, category
+    priority, top-k, softmax normalization, directed graph) is unaffected.
 
     Args:
         d_hidden:                   dimension of latent h from SharedProductEncoder
@@ -23,6 +31,10 @@ class SparseNeighborSelector(nn.Module):
         init_liters_bonus:          initial additive bonus for similar liters_per_upc
         liters_gamma:               decay rate for liters similarity (exp(-gamma * log_dist))
         use_same_category_strict:   if True, same-category candidates are preferred first
+        score_mode:                 "scaled_dot" (default) or "additive" compatibility scorer
+        query_chunk:                block size over focal products i used only by the
+                                     dense additive path, to avoid materializing a
+                                     (B, n, n, d_attn) tensor. Unused in scaled_dot mode.
 
     Returns (from run):
         pairs:        (2, E)   directed edges, E = n * k_eff, batch-shared
@@ -41,11 +53,23 @@ class SparseNeighborSelector(nn.Module):
         init_liters_bonus: float = 0.10,
         liters_gamma: float = 1.0,
         use_same_category_strict: bool = True,
+        score_mode: Literal["scaled_dot", "additive"] = "scaled_dot",
+        query_chunk: int = 64
     ):
         super().__init__()
+        if score_mode not in ("scaled_dot", "additive"):
+            raise ValueError(f"Unknown score_mode: {score_mode!r}")
+        self.score_mode = score_mode
+        self.query_chunk = query_chunk
+
         self.q_proj = nn.Linear(d_hidden, d_attn, bias=False)
         self.k_proj = nn.Linear(d_hidden, d_attn, bias=False)
         self.scale  = math.sqrt(d_attn)
+
+        if score_mode == "additive":
+            self.v_score = nn.Linear(d_attn, 1, bias=False)
+        else:
+            self.v_score = None
 
         self.k                        = k_neighbors
         self.gamma                    = liters_gamma
@@ -107,6 +131,72 @@ class SparseNeighborSelector(nn.Module):
 
         return not_self, same_cat, bonus
 
+    def _dense_natural_logits(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        Full (B, n, n) compatibility logits s_ij, BEFORE metadata bonus/mask.
+
+        Used by accumulate_mean_scores() and the online run() path (i.e.
+        while frozen_pairs is None), where all n*n candidate pairs are still
+        unknown and must be scored densely.
+        """
+        B, n, _ = h.shape
+
+        if self.score_mode == "scaled_dot":
+            Q = self.q_proj(h) # (B, n, d_attn)
+            K = self.k_proj(h) # (B, n, d_attn)
+            return torch.bmm(Q, K.transpose(1, 2)) / self.scale # (B, n, n)
+        
+        # score_mode == "additive": s_ij = v_a^T tanh(W_q h_i + W_k h_j)
+        # Evaluated in blocks of query_chunk focal products i, so we never
+        # materialize the full (B, n, n, d_attn) tensor at once.
+
+        K = self.k_proj(h) # (B, n, d_attn)
+        scores = torch.empty(B, n, n, device=h.device, dtype=h.dtype)
+        for i0 in range(0, n, self.query_chunk):
+            i1 = min(i0 + self.query_chunk, n)
+            Q_chunk = self.q_proj(h[:, i0:i1, :]) # (B, i1-i0, d_attn)
+            combined = torch.tanh(Q_chunk.unsqueeze(2) + K.unsqueeze(1)) # (B, i1-i0, n, d_attn)
+            scores[:, i0:i1, :] = self.v_score(combined).squeeze(-1) # (B, i1-i0, n)
+        return scores # (B, n, n)
+    
+    def _edge_neural_logits(
+        self, 
+        h: torch.Tensor, 
+        pairs: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compatibility logits s_ij for the E selected (i_idx, j_idx) edges
+        only, BEFORE metadata bonus.
+
+        Used by the frozen-graph run() path, where only the n*k_eff
+        pre-selected pairs are needed — the full (n, n) matrix is never
+        computed, so no chunking is required even in additive mode.
+        """
+
+        i_idx, j_idx = pairs[0], pairs[1]
+
+        if self.score_mode == "scaled_dot":
+            Q = self.q_proj(h) # (B, n, d_attn)
+            K = self.k_proj(h) # (B, n, d_attn)
+            return (Q[:, i_idx, :] * K[:, j_idx, :]).sum(-1) / self.scale # (B, E)
+
+        # score_mode == "additive"
+        Q_i = self.q_proj(h[:, i_idx, :]) # (B, E, d_attn)
+        K_j = self.k_proj(h[:, j_idx, :]) # (B, E, d_attn)
+        combined = torch.tanh(Q_i + K_j) # (B, E, d_attn)
+        return self.v_score(combined).squeeze(-1) # (B, E)
+
+    def _softmax_available(self, edge_logits, pairs, availability, B, n, k_eff):
+        """edge_logits: (B, n, k_eff). availability: (B, n)."""
+        j_idx = pairs[1]
+        avail_j = availability[:, j_idx].view(B, n, k_eff).bool()
+        edge_logits = edge_logits.masked_fill(~avail_j, float("-inf"))
+        weights = F.softmax(edge_logits, dim=-1)
+        all_gone = ~avail_j.any(dim=-1)                 # (B, n)
+        weights = weights.masked_fill(all_gone.unsqueeze(-1), 0.0)
+        return weights.reshape(B, n * k_eff)
+
+
     @torch.no_grad()
     def accumulate_mean_scores(
         self,
@@ -117,7 +207,7 @@ class SparseNeighborSelector(nn.Module):
         liters:   torch.Tensor,
     ) -> torch.Tensor:
         """
-        Accumulate the global mean score matrix (n, n) over all training batches.
+        Averages the (n, n) score matrix over every observation.
 
         Iterates over h_iter — each element is an (B, n, d_hidden) tensor
         already computed by the encoder for one training batch. The caller is
@@ -129,23 +219,21 @@ class SparseNeighborSelector(nn.Module):
         device = next(self.parameters()).device
         not_self, _, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
 
-        acc   = None
-        count = 0
+        score_sum = None
+        n_obs = 0
         for h in h_iter:
             h = h.to(device)
-            Q = self.q_proj(h)  # (B, n, d_attn)
-            K = self.k_proj(h)  # (B, n, d_attn)
             # Full (B, n, n) matrix needed here: we do not yet know which pairs to keep.
-            scores = torch.bmm(Q, K.transpose(1, 2)) / self.scale   # (B, n, n)
+            scores = self._dense_natural_logits(h)
             scores = scores + meta_bonus.unsqueeze(0)
             scores = scores.masked_fill(~not_self.unsqueeze(0), float("-inf"))
-            batch_mean = scores.mean(dim=0)                          # (n, n)
-            acc    = batch_mean if acc is None else acc + batch_mean
-            count += 1
+            batch_sum = scores.sum(dim=0)                            # (n, n)
+            score_sum = batch_sum if score_sum is None else score_sum + batch_sum
+            n_obs += h.shape[0]
 
-        if acc is None or count == 0:
+        if score_sum is None or n_obs == 0:
             raise RuntimeError("accumulate_mean_scores: h_iter was empty.")
-        return acc / count   # (n, n)
+        return score_sum / n_obs   # (n, n)
 
     def freeze_graph(
         self,
@@ -236,6 +324,7 @@ class SparseNeighborSelector(nn.Module):
         brand: torch.Tensor,     # (n,) int
         style: torch.Tensor,     # (n,) int
         liters: torch.Tensor,    # (n,) float
+        availability: torch.Tensor, # (B, n) bool
     ) -> tuple[torch.Tensor, torch.Tensor]:
         B, n, _ = h.shape
         device  = h.device
@@ -243,10 +332,6 @@ class SparseNeighborSelector(nn.Module):
         if n <= 1:
             return (torch.empty(2, 0, dtype=torch.long, device=device),
                     torch.empty(B, 0, dtype=h.dtype,    device=device))
-
-        Q = self.q_proj(h)  # (B, n, d_attn)
-        K = self.k_proj(h)  # (B, n, d_attn)
-
         # ── Frozen graph path: O(B * E * d_attn) ─────────
         # Active after freeze_graph() has been called (val/test and publication runs).
         # P* is fixed; we only compute the E = n*k_eff dot products that are needed.
@@ -256,16 +341,16 @@ class SparseNeighborSelector(nn.Module):
             E     = i_idx.numel()
             k_eff = E // n
             # Sparse dot products: (B, E) without materializing the full (B, n, n) matrix.
-            edge_logits = (Q[:, i_idx, :] * K[:, j_idx, :]).sum(-1) / self.scale  # (B, E)
+            edge_logits = self._edge_neural_logits(h, pairs) # (B, E)
             edge_logits = edge_logits + self.frozen_edge_bonus.unsqueeze(0)        # (B, E)
             edge_logits = edge_logits.view(B, n, k_eff)                            # (B, n, k_eff)
-            edge_weights = F.softmax(edge_logits, dim=-1).reshape(B, E)           # (B, E)
+            edge_weights = self._softmax_available(edge_logits, pairs, availability, B, n, k_eff) # (B, E)
             return pairs, edge_weights
 
         not_self, same_cat, meta_bonus = self._meta_bonus(category, brand, style, liters, device)
 
         # scores[b, i, j] = q_i · k_j / sqrt(d_attn) + metadata_bonus(i,j)
-        scores = torch.bmm(Q, K.transpose(1, 2)) / self.scale  # (B, n, n)
+        scores = self._dense_natural_logits(h)  # (B, n, n)
         scores = scores + meta_bonus.unsqueeze(0)
         scores = scores.masked_fill(~not_self.unsqueeze(0), float("-inf"))
 
@@ -285,7 +370,7 @@ class SparseNeighborSelector(nn.Module):
         k_eff = E // n
         # Reshape to (B, n, k_eff) to apply softmax per focal product i
         edge_logits  = scores[:, i_idx, j_idx].view(B, n, k_eff)  # (B, n, k_eff)
-        edge_weights = F.softmax(edge_logits, dim=-1).reshape(B, E)  # (B, E)
+        edge_weights = self._softmax_available(edge_logits, pairs, availability, B, n, k_eff)  # (B, E)
 
         return pairs, edge_weights  # (2, E), (B, E)
 

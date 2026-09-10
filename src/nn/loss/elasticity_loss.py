@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .components import FitLoss, SmoothnessPenalty
+from .elasticity_mask import elasticity_entry_mask
 
 class ElasticityLoss(nn.Module):
     """
@@ -50,6 +51,9 @@ class ElasticityLoss(nn.Module):
         Bx: torch.Tensor,        # (B, n, K)
         pairs: torch.Tensor,     # (2, n_cross)
         E: torch.Tensor | None = None,  # (B, n, n) full elasticity matrix — required if lambda_elast > 0
+        attn_weights: torch.Tensor | None = None, # (B, n_cross)
+        availability: torch.Tensor | None = None, # (B, n) bool
+        price_observed: torch.Tensor | None = None, # (B, n) bool
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
         # 1. Fit loss — Huber on observed log-demands only.
@@ -61,7 +65,13 @@ class ElasticityLoss(nn.Module):
 
         # 2. Smoothness penalty — penalises high curvature of own-price demand curves.
         if self.lambda_smooth > 0.0:
-            loss_smooth = self.smoothness_penalty.run(w, ddBx, u, Bx, pairs)
+            loss_smooth = self.smoothness_penalty.run(
+                w, ddBx, u, Bx, pairs,
+                attn_weights=attn_weights,
+                availability=availability,
+                obs_mask=obs_mask,
+                price_observed=price_observed,
+            )
         else:
             loss_smooth = y_hat.new_tensor(0.0)
 
@@ -92,37 +102,45 @@ class ElasticityLoss(nn.Module):
             R[diag, diag]   = self.r_own
             rho[diag, diag] = self.rho_own_low
 
-            # Build mask M_{ij} — shape (B, n, n).
-            # Diagonal (own-price): M_{ii} = m_i.
-            # Off-diagonal (cross-price): M_{ij} = m_i · m_j · 1[(i,j) in graph].
-            # The sparse graph membership is implicitly encoded in E: positions not
-            # selected by SparseNeighborSelector are left as zero by DemandCalculator,
-            # so their penalty is zero regardless of the mask value.
-            m = obs_mask.float()                          # (B, n)
-            M = m.unsqueeze(2) * m.unsqueeze(1)           # (B, n, n): m_i · m_j
+            # M_{ij}: observed AND on the graph (diag + selected directed edges).
+            # Inactive off-diagonals of E are structural zeros, not estimates.
+            M = elasticity_entry_mask(
+                obs_mask, pairs=pairs,
+                availability=availability,
+                price_observed=price_observed,
+                include_diag=True,
+            )
 
-            # Compute the per-entry hinge penalties.
-            upper_viol = F.relu(E - R.unsqueeze(0)) ** 2                   # (B, n, n)
-            lower_viol = F.relu(L.unsqueeze(0) - E) ** 2                   # (B, n, n)
-            penalty    = M * (upper_viol + rho.unsqueeze(0) * lower_viol)  # (B, n, n)
+            upper_viol = F.relu(E - R.unsqueeze(0)) ** 2
+            lower_viol = F.relu(L.unsqueeze(0) - E) ** 2
+            penalty    = M.float() * (upper_viol + rho.unsqueeze(0) * lower_viol)
 
-            N_E        = M.sum().clamp(min=1.0)  # avoid division by zero
+            N_E        = M.float().sum().clamp(min=1.0)
             loss_elast = penalty.sum() / N_E
+            n_elast    = N_E
         else:
             loss_elast = y_hat.new_tensor(0.0)
+            n_elast    = loss_fit.new_tensor(0.0)
+
+        n_obs = obs_mask.to(dtype=loss_fit.dtype).sum()
+        if price_observed is not None:
+            n_smooth = (obs_mask * price_observed).to(dtype=loss_fit.dtype).sum()
+        else:
+            n_smooth = n_obs
 
         loss = (loss_fit
                 + self.lambda_smooth * loss_smooth
                 + self.lambda_elast  * loss_elast)
 
-        # Monitoring stats — detached to free the computation graph.
-        # eps_hat is the diagonal of E; fall back to zeros if E is not available.
         eps_hat = E[:, diag, diag].detach() if E is not None else y_hat.new_zeros(y_hat.shape)
         logs = {
             "loss":        loss.detach(),
             "loss_fit":    loss_fit.detach(),
             "loss_smooth": loss_smooth.detach(),
             "loss_elast":  loss_elast.detach(),
+            "n_obs":       n_obs.detach(),
+            "n_smooth":    n_smooth.detach(),
+            "n_elast":     n_elast.detach(),
             "eps_mean":    eps_hat.mean(),
             "eps_p50":     eps_hat.median(),
             "obs_frac":    obs_mask.mean().detach(),
